@@ -2667,6 +2667,17 @@ tr:hover td {
   box-shadow: inset -1px -1px 0 #cbd5e1;
 }
 
+.excel-add-row-btn {
+  transition: all 0.15s ease;
+}
+
+.excel-add-row-btn:hover {
+  background: var(--accent-blue) !important;
+  color: #ffffff !important;
+  transform: scale(1.15);
+  box-shadow: 0 2px 8px rgba(29, 114, 254, 0.35) !important;
+}
+
 /* ═══════════════════════════════════════════════════════════════════════════
    ── COMPREHENSIVE RESPONSIVE DESIGN SYSTEM (ALL DEVICES & ORIENTATIONS) ──
    ═══════════════════════════════════════════════════════════════════════════ */

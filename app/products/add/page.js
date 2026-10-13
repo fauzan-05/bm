@@ -295,7 +295,7 @@ export default function AddProductPage() {
 
   // ── DONE BUTTON ON SHEET 1 (TRANSITION TO SHEET 2 VARIANTS) ──
   const handleDoneToVariants = () => {
-    const mainProd = productRows[0] || {};
+    const mainProd = productRows[activeProdRowIdx] || productRows[0] || {};
     if (!mainProd.name || !mainProd.name.trim()) {
       showToast('Please enter the Product Name in Col B before proceeding to variants', 'error');
       setActiveProdCol('name');
@@ -307,7 +307,7 @@ export default function AddProductPage() {
 
   // ── SAVE PRODUCT ACTION (CREATES PRODUCT & VARIANTS) ──
   const handleSaveProduct = async () => {
-    const mainProd = productRows[0] || {};
+    const mainProd = productRows[activeProdRowIdx] || productRows[0] || {};
     if (!mainProd.name || !mainProd.name.trim()) {
       showToast('Please enter the Product Name in Sheet 1', 'error');
       setActiveSheet('details');
@@ -427,7 +427,7 @@ export default function AddProductPage() {
 
   // ── SAVE TO DRAFTS ──
   const handleSaveToDrafts = () => {
-    const mainProd = productRows[0] || {};
+    const mainProd = productRows[activeProdRowIdx] || productRows[0] || {};
     if (!mainProd.name || !mainProd.name.trim()) {
       showToast('Enter a product name to save as draft', 'error');
       return;
@@ -485,7 +485,7 @@ export default function AddProductPage() {
       ? `${PROD_COL_LETTERS[activeProdCol] || 'A'}${activeProdRowIdx + 1}`
       : `${VAR_COL_LETTERS[activeVarCol] || 'A'}${activeVarRowIdx + 1}`;
 
-  const mainProduct = productRows[0] || {};
+  const mainProduct = productRows[activeProdRowIdx] || productRows[0] || {};
   const filledVariantsCount = variantRows.filter(
     (v) =>
       v.unitId ||
@@ -1394,6 +1394,9 @@ export default function AddProductPage() {
                       {col.label}
                     </th>
                   ))}
+                  {productRows.length > 1 && (
+                    <th style={{ width: '60px', textAlign: 'center' }}>Action</th>
+                  )}
                 </tr>
               </thead>
               <tbody>
@@ -1640,9 +1643,103 @@ export default function AddProductPage() {
                           }}
                         />
                       </td>
+                      {productRows.length > 1 && (
+                        <td style={{ textAlign: 'center' }}>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setProductRows((prev) => prev.filter((_, idx) => idx !== rIdx));
+                              setActiveProdRowIdx((prev) => Math.max(0, prev - 1));
+                              showToast(`Product Row ${rIdx + 1} deleted`, 'info');
+                            }}
+                            className="btn btn-sm btn-outline"
+                            style={{ color: '#ef4444', border: 'none', padding: '3px 8px' }}
+                            title="Delete row"
+                          >
+                            <FiTrash2 size={13} />
+                          </button>
+                        </td>
+                      )}
                     </tr>
                   );
                 })}
+
+                {/* ── ROW ADD BUTTON DIRECTLY BELOW ROW 1 ── */}
+                <tr>
+                  <td
+                    className="excel-row-num"
+                    style={{
+                      textAlign: 'center',
+                      verticalAlign: 'middle',
+                      padding: '5px 0',
+                      background: '#f8fafc',
+                      cursor: 'pointer',
+                    }}
+                    onClick={() => {
+                      const nextIdx = productRows.length;
+                      setProductRows((prev) => [...prev, createEmptyProductRow(nextIdx + 1)]);
+                      setActiveProdRowIdx(nextIdx);
+                      setActiveProdCol('name');
+                      showToast(`Product Row ${nextIdx + 1} added`, 'info');
+                    }}
+                    title="Add new product row"
+                  >
+                    <button
+                      type="button"
+                      style={{
+                        width: '24px',
+                        height: '24px',
+                        borderRadius: '50%',
+                        border: '1.5px solid var(--accent-blue)',
+                        background: '#eff6ff',
+                        color: 'var(--accent-blue)',
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        cursor: 'pointer',
+                        padding: 0,
+                        margin: '0 auto',
+                        boxShadow: '0 1px 3px rgba(29, 114, 254, 0.2)',
+                        transition: 'all 0.15s ease',
+                      }}
+                      className="excel-add-row-btn"
+                      title="Add Row"
+                    >
+                      <FiPlus size={14} />
+                    </button>
+                  </td>
+                  <td
+                    colSpan={PRODUCT_COLUMNS.length + (productRows.length > 1 ? 1 : 0)}
+                    style={{
+                      padding: '7px 16px',
+                      background: '#ffffff',
+                      cursor: 'pointer',
+                      borderBottom: '1px solid var(--border)',
+                      color: 'var(--text-muted)',
+                      fontSize: '12px',
+                    }}
+                    onClick={() => {
+                      const nextIdx = productRows.length;
+                      setProductRows((prev) => [...prev, createEmptyProductRow(nextIdx + 1)]);
+                      setActiveProdRowIdx(nextIdx);
+                      setActiveProdCol('name');
+                      showToast(`Product Row ${nextIdx + 1} added`, 'info');
+                    }}
+                  >
+                    <span
+                      style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '6px',
+                        color: 'var(--accent-blue)',
+                        fontWeight: 700,
+                        fontSize: '12px',
+                      }}
+                    >
+                      <FiPlus size={13} /> Add Row
+                    </span>
+                  </td>
+                </tr>
               </tbody>
             </table>
           </div>
@@ -1891,7 +1988,84 @@ export default function AddProductPage() {
                       </tr>
                     );
                   })}
-                </tbody>
+
+                {/* ── ROW ADD BUTTON DIRECTLY BELOW LAST VARIANT ROW ── */}
+                <tr>
+                  <td
+                    className="excel-row-num"
+                    style={{
+                      textAlign: 'center',
+                      verticalAlign: 'middle',
+                      padding: '5px 0',
+                      background: '#f8fafc',
+                      cursor: 'pointer',
+                    }}
+                    onClick={() => {
+                      const nextIdx = variantRows.length;
+                      setVariantRows((prev) => [...prev, createEmptyVariantRow(Date.now())]);
+                      setActiveVarRowIdx(nextIdx);
+                      setActiveVarCol('unitId');
+                      showToast(`Variant Row ${nextIdx + 1} added`, 'info');
+                    }}
+                    title="Add new variant row"
+                  >
+                    <button
+                      type="button"
+                      style={{
+                        width: '24px',
+                        height: '24px',
+                        borderRadius: '50%',
+                        border: '1.5px solid var(--accent-blue)',
+                        background: '#eff6ff',
+                        color: 'var(--accent-blue)',
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        cursor: 'pointer',
+                        padding: 0,
+                        margin: '0 auto',
+                        boxShadow: '0 1px 3px rgba(29, 114, 254, 0.2)',
+                        transition: 'all 0.15s ease',
+                      }}
+                      className="excel-add-row-btn"
+                      title="Add Variant Row"
+                    >
+                      <FiPlus size={14} />
+                    </button>
+                  </td>
+                  <td
+                    colSpan={VARIANT_COLUMNS.length + 1}
+                    style={{
+                      padding: '7px 16px',
+                      background: '#ffffff',
+                      cursor: 'pointer',
+                      borderBottom: '1px solid var(--border)',
+                      color: 'var(--text-muted)',
+                      fontSize: '12px',
+                    }}
+                    onClick={() => {
+                      const nextIdx = variantRows.length;
+                      setVariantRows((prev) => [...prev, createEmptyVariantRow(Date.now())]);
+                      setActiveVarRowIdx(nextIdx);
+                      setActiveVarCol('unitId');
+                      showToast(`Variant Row ${nextIdx + 1} added`, 'info');
+                    }}
+                  >
+                    <span
+                      style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '6px',
+                        color: 'var(--accent-blue)',
+                        fontWeight: 700,
+                        fontSize: '12px',
+                      }}
+                    >
+                      <FiPlus size={13} /> Add Variant Row
+                    </span>
+                  </td>
+                </tr>
+              </tbody>
               </table>
             </div>
           ) : (
