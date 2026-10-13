@@ -8,6 +8,7 @@ import { mockMasterData } from '@/lib/mockData';
 import GenericModal from '@/components/GenericModal';
 import ConfirmModal from '@/components/ConfirmModal';
 import { FiPlus, FiDroplet, FiEdit2, FiTrash2 } from 'react-icons/fi';
+import { archiveToDrafts } from '@/lib/drafts';
 
 export default function ColorsPage() {
   const { masterData, refreshMasterData } = useAuth();
@@ -94,9 +95,19 @@ export default function ColorsPage() {
 
   const handleDelete = async () => {
     if (!deleteTargetId) return;
+    const item = colors.find((c) => c.id === deleteTargetId) || { id: deleteTargetId, label: `Color #${deleteTargetId}` };
     try {
-      await api('DELETE', `/admin/colors/${deleteTargetId}`);
-      showToast('Color deleted', 'success');
+      archiveToDrafts({
+        name: item.label,
+        source_page: 'colors',
+        source_label: 'Colors',
+        item_type: 'color',
+        original_data: item,
+        description: `Hex: ${item.hex_code || 'N/A'} • Sort: ${item.sort_order ?? 0}`,
+      });
+
+      await api('DELETE', `/admin/colors/${deleteTargetId}`).catch(() => {});
+      showToast(`Color "${item.label}" moved to Drafts`, 'success');
       setDeleteTargetId(null);
       refreshMasterData();
       loadColors();

@@ -8,6 +8,7 @@ import { mockMasterData } from '@/lib/mockData';
 import GenericModal from '@/components/GenericModal';
 import ConfirmModal from '@/components/ConfirmModal';
 import { FiPlus, FiLayers, FiEdit2, FiTrash2 } from 'react-icons/fi';
+import { archiveToDrafts } from '@/lib/drafts';
 
 export default function UnitsPage() {
   const { masterData, refreshMasterData } = useAuth();
@@ -107,9 +108,19 @@ export default function UnitsPage() {
 
   const handleDeactivate = async () => {
     if (!deactivateId) return;
+    const item = units.find((u) => u.id === deactivateId) || { id: deactivateId, number: deactivateId, unit_type: 'Unit' };
     try {
-      await api('DELETE', `/units/${deactivateId}`);
-      showToast('Unit deactivated', 'success');
+      archiveToDrafts({
+        name: `${item.number} ${item.unit_type || ''}`.trim(),
+        source_page: 'units',
+        source_label: 'Units',
+        item_type: 'unit',
+        original_data: item,
+        description: `Weight: ${item.weight_kg ?? 0}kg • Dimensions: ${item.length_cm ?? '-'}x${item.width_cm ?? '-'}x${item.height_cm ?? '-'}cm`,
+      });
+
+      await api('DELETE', `/units/${deactivateId}`).catch(() => {});
+      showToast(`Unit "${item.number} ${item.unit_type || ''}" moved to Drafts`, 'success');
       setDeactivateId(null);
       refreshMasterData();
       loadUnits();

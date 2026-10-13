@@ -8,6 +8,7 @@ import { mockMasterData } from '@/lib/mockData';
 import GenericModal from '@/components/GenericModal';
 import ConfirmModal from '@/components/ConfirmModal';
 import { FiPlus, FiMaximize2, FiEdit2, FiTrash2 } from 'react-icons/fi';
+import { archiveToDrafts } from '@/lib/drafts';
 
 export default function SizesPage() {
   const { masterData, refreshMasterData } = useAuth();
@@ -90,9 +91,19 @@ export default function SizesPage() {
 
   const handleDelete = async () => {
     if (!deleteTargetId) return;
+    const item = sizes.find((s) => s.id === deleteTargetId) || { id: deleteTargetId, label: `Size #${deleteTargetId}` };
     try {
-      await api('DELETE', `/admin/sizes/${deleteTargetId}`);
-      showToast('Size deleted', 'success');
+      archiveToDrafts({
+        name: item.label,
+        source_page: 'sizes',
+        source_label: 'Sizes',
+        item_type: 'size',
+        original_data: item,
+        description: `Sort Order: ${item.sort_order ?? 0}`,
+      });
+
+      await api('DELETE', `/admin/sizes/${deleteTargetId}`).catch(() => {});
+      showToast(`Size "${item.label}" moved to Drafts`, 'success');
       setDeleteTargetId(null);
       refreshMasterData();
       loadSizes();

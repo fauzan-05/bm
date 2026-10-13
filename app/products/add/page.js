@@ -1,12 +1,13 @@
 'use client';
 
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, Suspense } from 'react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { api, uploadImages, resolveImg } from '@/lib/api';
 import { useAuth } from '@/context/AuthContext';
 import { useToast } from '@/context/ToastContext';
 import { saveDraft } from '@/lib/drafts';
+import { mockProducts } from '@/lib/mockData';
 import {
   FiArrowLeft,
   FiPlus,
@@ -22,6 +23,9 @@ import {
   FiX,
   FiLayers,
   FiEdit3,
+  FiEye,
+  FiAlertCircle,
+  FiSave,
 } from 'react-icons/fi';
 
 // ── SHEET 1: PRODUCT DETAILS COLUMNS (EXCEL SPREADSHEET) ──
@@ -68,6 +72,7 @@ const createEmptyProductRow = (id = 1) => ({
   gstPercent: '0',
   description: '',
   searchKeywords: '',
+  variants: [],
 });
 
 const createEmptyVariantRow = (id = 1) => ({
@@ -80,13 +85,21 @@ const createEmptyVariantRow = (id = 1) => ({
   customFields: [], // Array of { label: '', value: '' }
 });
 
-export default function AddProductPage() {
+const SESSION_STORAGE_KEY = 'bm_add_product_session';
+
+function AddProductPageContent() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const editId = searchParams.get('id');
+  const initialSheetParam = searchParams.get('sheet');
   const { masterData } = useAuth();
   const { showToast } = useToast();
 
+  const sessionKey = editId ? `bm_edit_product_session_${editId}` : 'bm_add_product_session';
+
   const [saving, setSaving] = useState(false);
   const [subcatCache, setSubcatCache] = useState({});
+  const [loadingEditProduct, setLoadingEditProduct] = useState(false);
 
   // Screen detection (mobile vs desktop)
   const [isMobile, setIsMobile] = useState(false);
@@ -131,28 +144,307 @@ export default function AddProductPage() {
   // Custom Fields Modal Popover State for Excel Grid mode
   const [customFieldTargetIdx, setCustomFieldTargetIdx] = useState(null); // variant row index
 
+  // Confirmation Modal Popup State for Add / Delete Row
+  const [confirmModal, setConfirmModal] = useState(null); // { title, message, confirmText, isDanger, onConfirm }
+
+  // ── BACK NAVIGATION CONFIRMATION MODAL (SAVE / DISCARD / CANCEL) ──
+  const [showBackModal, setShowBackModal] = useState(false);
+  const allowNavigationRef = useRef(false);
+
+  // Intercept browser back button to show Save / Discard / Cancel popup
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+
+    // Push history state to intercept browser back button
+    window.history.pushState({ page: 'add_product' }, '', window.location.href);
+
+    const handlePopState = () => {
+      if (allowNavigationRef.current) return;
+      // Re-push history state so user stays on page while popup is open
+      window.history.pushState({ page: 'add_product' }, '', window.location.href);
+      setShowBackModal(true);
+    };
+
+    window.addEventListener('popstate', handlePopState);
+    return () => {
+      window.removeEventListener('popstate', handlePopState);
+    };
+  }, []);
+
+  // ── LOCAL STORAGE PERSISTENCE ACROSS REFRESH ──
+  const [isSessionHydrated, setIsSessionHydrated] = useState(false);
+
+  // Restore session from localStorage on initial client mount
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem(sessionKey);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed.productRows) && parsed.productRows.length > 0) {
+          setProductRows(parsed.productRows);
+        }
+        if (Array.isArray(parsed.variantRows) && parsed.variantRows.length > 0) {
+          setVariantRows(parsed.variantRows);
+        }
+        if (parsed.activeSheet) {
+          setActiveSheet(parsed.activeSheet);
+        }
+        if (parsed.variantViewMode) {
+          setVariantViewMode(parsed.variantViewMode);
+        }
+      }
+    } catch (e) {
+      console.warn('Failed to restore add product session:', e);
+    } finally {
+      setIsSessionHydrated(true);
+    }
+  }, [sessionKey]);
+
+  // Automatically save sheet state to localStorage whenever rows or sheets update
+  useEffect(() => {
+    if (!isSessionHydrated) return;
+    try {
+      localStorage.setItem(
+        sessionKey,
+        JSON.stringify({
+          productRows,
+          variantRows,
+          activeSheet,
+          variantViewMode,
+        })
+      );
+    } catch (e) {
+      console.warn('Failed to auto-save add product session:', e);
+    }
+  }, [productRows, variantRows, activeSheet, variantViewMode, isSessionHydrated, sessionKey]);
+
+  const clearProductSession = () => {
+    try {
+      localStorage.removeItem(sessionKey);
+    } catch {}
+  };
+
+  // Synchronize variantRows into active product row's variants property
+  useEffect(() => {
+    if (!isSessionHydrated) return;
+    setProductRows((prev) => {
+      const activeProd = prev[activeProdRowIdx];
+      if (!activeProd) return prev;
+      if (activeProd.variants === variantRows) return prev;
+      const next = [...prev];
+      next[activeProdRowIdx] = {
+        ...next[activeProdRowIdx],
+        variants: variantRows,
+      };
+      return next;
+    });
+  }, [variantRows, activeProdRowIdx, isSessionHydrated]);
+
+  // Open variants sheet for a specific product row
+  const handleOpenVariantsForRow = (rIdx) => {
+    const targetProd = productRows[rIdx];
+    if (!targetProd) return;
+
+    const targetVariants =
+      targetProd.variants && targetProd.variants.length > 0
+        ? targetProd.variants
+        : [
+            createEmptyVariantRow(1),
+            createEmptyVariantRow(2),
+            createEmptyVariantRow(3),
+          ];
+
+    setProductRows((prev) => {
+      const next = [...prev];
+      if (next[activeProdRowIdx] && activeProdRowIdx !== rIdx) {
+        next[activeProdRowIdx] = {
+          ...next[activeProdRowIdx],
+          variants: variantRows,
+        };
+      }
+      if (next[rIdx]) {
+        next[rIdx] = {
+          ...next[rIdx],
+          variants: targetVariants,
+        };
+      }
+      return next;
+    });
+
+    setActiveProdRowIdx(rIdx);
+    setVariantRows(targetVariants);
+    setActiveVarRowIdx(0);
+    setActiveVarCol('unitId');
+    setActiveSheet('variants');
+
+    const hasFilled = targetVariants.some(
+      (v) =>
+        (v.unitId && String(v.unitId).trim()) ||
+        (v.size && String(v.size).trim()) ||
+        (v.color && String(v.color).trim()) ||
+        (v.description && String(v.description).trim()) ||
+        (v.images && v.images.length > 0) ||
+        (v.customFields && v.customFields.some((f) => f.label && f.label.trim()))
+    );
+
+    if (hasFilled) {
+      showToast(
+        `Viewing variants for "${targetProd.name || `Row #${rIdx + 1}`}"`,
+        'info'
+      );
+    } else {
+      showToast(
+        `Add variants for "${targetProd.name || `Row #${rIdx + 1}`}"`,
+        'info'
+      );
+    }
+  };
+
+  // Return to Sheet 1 while persisting active variants into active product row
+  const handleBackToDetails = () => {
+    setProductRows((prev) => {
+      const next = [...prev];
+      if (next[activeProdRowIdx]) {
+        next[activeProdRowIdx] = {
+          ...next[activeProdRowIdx],
+          variants: variantRows,
+        };
+      }
+      return next;
+    });
+    setActiveSheet('details');
+  };
+
   // Dynamic Subcategories Cache
   const loadSubcategories = useCallback(
     async (catId) => {
-      if (!catId || subcatCache[catId]) return;
+      if (!catId) return;
       try {
         const res = await api('GET', `/categories/${catId}/subcategories`);
-        setSubcatCache((prev) => ({
-          ...prev,
-          [catId]: res.subcategories || [],
-        }));
+        setSubcatCache((prev) => {
+          if (prev[catId]) return prev;
+          return {
+            ...prev,
+            [catId]: res.subcategories || [],
+          };
+        });
       } catch {
-        const matched = (masterData.subcats || []).filter(
+        const matched = (masterData?.subcats || []).filter(
           (s) => String(s.category_id) === String(catId)
         );
-        setSubcatCache((prev) => ({
-          ...prev,
-          [catId]: matched,
-        }));
+        setSubcatCache((prev) => {
+          if (prev[catId]) return prev;
+          return {
+            ...prev,
+            [catId]: matched,
+          };
+        });
       }
     },
-    [subcatCache, masterData.subcats]
+    [masterData?.subcats]
   );
+
+  // ── LOAD EXISTING PRODUCT FOR EDITING ──
+  useEffect(() => {
+    if (!editId) return;
+
+    let isMounted = true;
+    async function loadProductForEdit() {
+      // If we already restored a modified edit session from localStorage, keep it
+      const existingSession = localStorage.getItem(sessionKey);
+      if (existingSession) return;
+
+      setLoadingEditProduct(true);
+      try {
+        let p = null;
+        try {
+          const res = await api('GET', `/products/${editId}`);
+          p = res.product || res;
+        } catch {
+          try {
+            const adminRes = await api('GET', `/admin/products/${editId}`);
+            p = adminRes.product || adminRes;
+          } catch {
+            p = mockProducts.find((item) => String(item.id) === String(editId)) || null;
+          }
+        }
+
+        if (!p || !isMounted) return;
+
+        // Fetch variants
+        let vList = [];
+        try {
+          const vRes = await api('GET', `/admin/products/${editId}/variants`);
+          vList = vRes.variants || [];
+        } catch {
+          vList = p.variants || [];
+        }
+
+        const formattedVariants = (vList || []).map((v, idx) => ({
+          id: v.id || Date.now() + idx,
+          images: v.images || [],
+          unitId: v.unit_id ? String(v.unit_id) : '',
+          size: v.size || '',
+          color: v.color || '',
+          description: v.description || '',
+          customFields: (v.custom_fields || []).map((cf) => ({
+            label: cf.label || cf.name || cf.key || '',
+            value: cf.value || '',
+          })),
+        }));
+
+        const finalVariants =
+          formattedVariants.length > 0
+            ? formattedVariants
+            : [
+                createEmptyVariantRow(1),
+                createEmptyVariantRow(2),
+                createEmptyVariantRow(3),
+              ];
+
+        const editedRow = {
+          id: p.id,
+          images: p.images || [],
+          name: p.name || '',
+          brandId: p.brand_id ? String(p.brand_id) : '',
+          categoryId: p.category_id ? String(p.category_id) : '',
+          subcategoryId: p.subcategory_id ? String(p.subcategory_id) : '',
+          isVeg: p.is_veg === false || p.is_veg === 'false' ? 'false' : 'true',
+          gstPercent: String(p.gst_percent || 0),
+          description: p.description || '',
+          searchKeywords: Array.isArray(p.search_keywords)
+            ? p.search_keywords.join(', ')
+            : (p.search_keywords || ''),
+          variants: finalVariants,
+        };
+
+        setProductRows([editedRow]);
+        setVariantRows(finalVariants);
+        setActiveProdRowIdx(0);
+        setActiveVarRowIdx(0);
+
+        if (initialSheetParam === 'variants') {
+          setActiveSheet('variants');
+        }
+
+        if (p.category_id) {
+          loadSubcategories(p.category_id);
+        }
+
+        showToast(`Loaded "${p.name}" for editing`, 'info');
+      } catch (err) {
+        showToast('Error loading product: ' + err.message, 'error');
+      } finally {
+        if (isMounted) setLoadingEditProduct(false);
+      }
+    }
+
+    loadProductForEdit();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [editId, initialSheetParam, loadSubcategories, showToast, sessionKey]);
 
   // ── SHEET 1 CELL UPDATE ──
   const updateProductCell = (rowIdx, colKey, value) => {
@@ -223,9 +515,106 @@ export default function AddProductPage() {
     });
   };
 
+  // ── ROW ADD / DELETE WITH CONFIRMATION POPUP ──
+  const requestAddProductRow = () => {
+    setConfirmModal({
+      title: 'Add New Product Row?',
+      message: 'Are you sure you want to add a new product row to the table?',
+      confirmText: 'Yes, Add Row',
+      isDanger: false,
+      onConfirm: () => {
+        const nextIdx = productRows.length;
+        setProductRows((prev) => [...prev, createEmptyProductRow(nextIdx + 1)]);
+        setActiveProdRowIdx(nextIdx);
+        setActiveProdCol('name');
+        showToast(`Product Row ${nextIdx + 1} added`, 'info');
+      },
+    });
+  };
+
+  const requestDeleteProductRow = (rIdx) => {
+    const isSingle = productRows.length <= 1;
+    setConfirmModal({
+      title: isSingle ? 'Clear Product Row?' : `Remove Product Row #${rIdx + 1}?`,
+      message: isSingle
+        ? 'Are you sure you want to clear this row? All entered product details will be reset.'
+        : `Are you sure you want to remove Product Row #${rIdx + 1}? Any unsaved details in this row will be deleted.`,
+      confirmText: isSingle ? 'Yes, Clear' : 'Yes, Remove',
+      isDanger: true,
+      onConfirm: () => {
+        if (isSingle) {
+          setProductRows([createEmptyProductRow(1)]);
+          showToast('Product row cleared', 'info');
+        } else {
+          setProductRows((prev) => prev.filter((_, idx) => idx !== rIdx));
+          setActiveProdRowIdx((prev) => Math.max(0, prev - 1));
+          showToast(`Product Row ${rIdx + 1} removed`, 'info');
+        }
+      },
+    });
+  };
+
+  const requestAddVariantRow = () => {
+    setConfirmModal({
+      title: 'Add New Variant Row?',
+      message: 'Are you sure you want to add a new variant row to the worksheet?',
+      confirmText: 'Yes, Add Variant',
+      isDanger: false,
+      onConfirm: () => {
+        const nextIdx = variantRows.length;
+        setVariantRows((prev) => [...prev, createEmptyVariantRow(Date.now())]);
+        setActiveVarRowIdx(nextIdx);
+        setActiveVarCol('unitId');
+        showToast(`Variant Row ${nextIdx + 1} added`, 'info');
+      },
+    });
+  };
+
+  const requestDeleteVariantRow = (rIdx) => {
+    const isSingle = variantRows.length <= 1;
+    setConfirmModal({
+      title: isSingle ? 'Clear Variant Row?' : `Remove Variant Row #${rIdx + 1}?`,
+      message: isSingle
+        ? 'Are you sure you want to clear this variant row? All entered attributes will be reset.'
+        : `Are you sure you want to remove Variant Row #${rIdx + 1}? Any unsaved variant data will be deleted.`,
+      confirmText: isSingle ? 'Yes, Clear' : 'Yes, Remove',
+      isDanger: true,
+      onConfirm: () => {
+        if (isSingle) {
+          setVariantRows([createEmptyVariantRow(1)]);
+          showToast('Variant row cleared', 'info');
+        } else {
+          setVariantRows((prev) => prev.filter((_, idx) => idx !== rIdx));
+          setActiveVarRowIdx((prev) => Math.max(0, prev - 1));
+          showToast(`Variant Row ${rIdx + 1} removed`, 'info');
+        }
+      },
+    });
+  };
+
+  const requestResetSheet = () => {
+    setConfirmModal({
+      title: 'Reset Sheet to Default?',
+      message: 'Are you sure you want to reset the worksheet? All added rows and entered data will be cleared back to blank.',
+      confirmText: 'Yes, Reset Sheet',
+      isDanger: true,
+      onConfirm: () => {
+        setProductRows([createEmptyProductRow(1)]);
+        setVariantRows([
+          createEmptyVariantRow(1),
+          createEmptyVariantRow(2),
+          createEmptyVariantRow(3),
+        ]);
+        setActiveProdRowIdx(0);
+        setActiveVarRowIdx(0);
+        clearProductSession();
+        showToast('Worksheet reset to default', 'info');
+      },
+    });
+  };
+
   const addNewVariant = () => {
-    setVariantRows((prev) => [...prev, createEmptyVariantRow(Date.now())]);
-    showToast(`Variant #${variantRows.length + 1} added`, 'info');
+    requestAddVariantRow();
   };
 
   const duplicateVariant = (rIdx) => {
@@ -236,13 +625,7 @@ export default function AddProductPage() {
   };
 
   const removeVariant = (rIdx) => {
-    if (variantRows.length <= 1) {
-      setVariantRows([createEmptyVariantRow(1)]);
-      showToast('Variant reset to empty', 'info');
-      return;
-    }
-    setVariantRows((prev) => prev.filter((_, idx) => idx !== rIdx));
-    showToast(`Variant #${rIdx + 1} removed`, 'info');
+    requestDeleteVariantRow(rIdx);
   };
 
   // ── IMAGE UPLOAD HANDLING ──
@@ -301,8 +684,7 @@ export default function AddProductPage() {
       setActiveProdCol('name');
       return;
     }
-    setActiveSheet('variants');
-    showToast(`Product "${mainProd.name}" confirmed! Now enter variants in Sheet 2.`, 'success');
+    handleOpenVariantsForRow(activeProdRowIdx);
   };
 
   // ── SAVE PRODUCT ACTION (CREATES PRODUCT & VARIANTS) ──
@@ -346,27 +728,45 @@ export default function AddProductPage() {
           (v.customFields && v.customFields.some((f) => f.label && f.label.trim()))
       );
 
-      let createdTargetId = null;
+      let createdTargetId = editId || null;
 
       try {
-        const res = await api('POST', '/admin/products', payload);
-        createdTargetId = (res.product || res).id;
+        if (editId) {
+          try {
+            await api('PUT', `/admin/products/${editId}`, payload);
+          } catch {
+            await api('PUT', `/products/${editId}`, payload).catch(() => {});
+          }
+        } else {
+          const res = await api('POST', '/admin/products', payload);
+          createdTargetId = (res.product || res).id;
+        }
 
         if (createdTargetId) {
-          // Add all variants to product
+          // Add/update all variants to product
           for (const vr of validVariants) {
             const cFields = (vr.customFields || [])
               .filter((f) => f.label && f.label.trim())
               .map((f) => ({ label: f.label.trim(), value: f.value ? f.value.trim() : '' }));
 
-            await api('POST', `/admin/products/${createdTargetId}/variants`, {
+            const vPayload = {
               unit_id: vr.unitId ? parseInt(vr.unitId) : null,
               size: vr.size || null,
               color: vr.color || null,
               description: vr.description || null,
               images: vr.images || [],
               custom_fields: cFields,
-            }).catch(() => {});
+            };
+
+            if (editId && vr.id && typeof vr.id === 'number' && vr.id < 1000000000000) {
+              try {
+                await api('PUT', `/admin/products/${createdTargetId}/variants/${vr.id}`, vPayload);
+              } catch {
+                await api('POST', `/admin/products/${createdTargetId}/variants`, vPayload).catch(() => {});
+              }
+            } else {
+              await api('POST', `/admin/products/${createdTargetId}/variants`, vPayload).catch(() => {});
+            }
           }
 
           // Link attributes
@@ -413,10 +813,52 @@ export default function AddProductPage() {
         });
       }
 
+      // Cache product locally with current timestamp for immediate top placement in /products
+      if (typeof window !== 'undefined') {
+        try {
+          const rawLocal = localStorage.getItem('bm_local_products');
+          const localList = rawLocal ? JSON.parse(rawLocal) : [];
+          const selectedBrand = masterData.brands.find(
+            (b) => String(b.id) === String(mainProd.brandId)
+          );
+          const selectedCat = masterData.categories.find(
+            (c) => String(c.id) === String(mainProd.categoryId)
+          );
+
+          const newProdId = createdTargetId || (editId ? Number(editId) : Date.now());
+          const savedItem = {
+            id: newProdId,
+            name: mainProd.name.trim(),
+            brand_id: mainProd.brandId ? parseInt(mainProd.brandId) : null,
+            brand_name: selectedBrand?.name || '',
+            category_id: mainProd.categoryId ? parseInt(mainProd.categoryId) : null,
+            category_name: selectedCat?.name || '',
+            subcategory_id: mainProd.subcategoryId ? parseInt(mainProd.subcategoryId) : null,
+            is_veg: mainProd.isVeg === 'true',
+            gst_percent: parseFloat(mainProd.gstPercent) || 0,
+            images: mainProd.images || [],
+            sku_id: 'BM-PROD-' + String(newProdId).slice(-4),
+            description: mainProd.description || '',
+            variants: validVariants,
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+          };
+
+          const remaining = localList.filter((item) => String(item.id) !== String(savedItem.id));
+          localStorage.setItem('bm_local_products', JSON.stringify([savedItem, ...remaining]));
+        } catch (e) {
+          console.warn('Failed to cache saved product locally:', e);
+        }
+      }
+
       showToast(
-        `Successfully saved "${mainProd.name}" with ${validVariants.length} variant(s)!`,
+        editId
+          ? `Successfully updated "${mainProd.name}"!`
+          : `Successfully saved "${mainProd.name}" with ${validVariants.length} variant(s)!`,
         'success'
       );
+      allowNavigationRef.current = true;
+      clearProductSession();
       router.push('/products');
     } catch (err) {
       showToast('Save failed: ' + err.message, 'error');
@@ -473,7 +915,82 @@ export default function AddProductPage() {
     });
 
     showToast(`Saved "${mainProd.name}" to Drafts!`, 'success');
+    allowNavigationRef.current = true;
+    clearProductSession();
     router.push('/drafts');
+  };
+
+  // ── BACK ACTION HANDLERS (SAVE / DISCARD / CANCEL) ──
+  const handleRequestBack = () => {
+    setShowBackModal(true);
+  };
+
+  const handleCancelBack = () => {
+    setShowBackModal(false);
+  };
+
+  const handleDiscardBack = () => {
+    allowNavigationRef.current = true;
+    clearProductSession();
+    setShowBackModal(false);
+    showToast('Changes discarded', 'info');
+    router.push('/products');
+  };
+
+  const handleSaveBack = () => {
+    allowNavigationRef.current = true;
+    setShowBackModal(false);
+
+    const mainProd = productRows[activeProdRowIdx] || productRows[0] || {};
+    const draftName =
+      mainProd.name && mainProd.name.trim()
+        ? mainProd.name.trim()
+        : editId
+        ? `Edited Product #${editId}`
+        : 'Untitled Product Draft';
+
+    const selectedBrand = masterData.brands.find(
+      (b) => String(b.id) === String(mainProd.brandId)
+    );
+    const selectedCat = masterData.categories.find(
+      (c) => String(c.id) === String(mainProd.categoryId)
+    );
+
+    const validVariants = variantRows.filter(
+      (v) =>
+        (v.unitId && String(v.unitId).trim()) ||
+        (v.size && v.size.trim()) ||
+        (v.color && v.color.trim()) ||
+        (v.description && v.description.trim()) ||
+        (v.images && v.images.length > 0) ||
+        (v.customFields && v.customFields.some((f) => f.label && f.label.trim()))
+    );
+
+    saveDraft({
+      name: draftName,
+      description: mainProd.description || null,
+      brand_id: mainProd.brandId ? parseInt(mainProd.brandId) : null,
+      brand_name: selectedBrand?.name || null,
+      category_id: mainProd.categoryId ? parseInt(mainProd.categoryId) : null,
+      category_name: selectedCat?.name || null,
+      subcategory_id: mainProd.subcategoryId ? parseInt(mainProd.subcategoryId) : null,
+      is_veg: mainProd.isVeg === 'true',
+      gst_percent: parseFloat(mainProd.gstPercent) || 0,
+      images: mainProd.images || [],
+      search_keywords: (mainProd.searchKeywords || '')
+        .split(',')
+        .map((s) => s.trim())
+        .filter(Boolean),
+      default_size: variantRows[0]?.size || null,
+      default_color: variantRows[0]?.color || null,
+      default_unit_id: variantRows[0]?.unitId ? parseInt(variantRows[0].unitId) : null,
+      variants: validVariants,
+      status: 'draft',
+    });
+
+    clearProductSession();
+    showToast(`Draft "${draftName}" saved successfully!`, 'success');
+    router.push('/products');
   };
 
   // Active cell coordinate and value
@@ -504,13 +1021,23 @@ export default function AddProductPage() {
       <div className="mobile-product-page-wrapper">
         {/* 1. Mobile Topbar Header */}
         <div className="mobile-product-topbar">
-          <Link href="/products" className="mobile-topbar-back-btn" title="Back to Products">
+          <button
+            type="button"
+            onClick={handleRequestBack}
+            className="mobile-topbar-back-btn"
+            title="Back to Products"
+            style={{
+              background: 'rgba(255, 255, 255, 0.15)',
+              border: '1px solid rgba(255, 255, 255, 0.25)',
+              cursor: 'pointer',
+            }}
+          >
             <FiArrowLeft size={16} />
             <span>Products</span>
-          </Link>
+          </button>
 
           <div className="mobile-product-topbar-title-box">
-            <h1 className="mobile-product-topbar-title">Add Product</h1>
+            <h1 className="mobile-product-topbar-title">{editId ? 'Edit Product' : 'Add Product'}</h1>
             <span className="mobile-product-topbar-sub">
               {activeSheet === 'details'
                 ? 'Step 1: Basic Information'
@@ -1164,21 +1691,39 @@ export default function AddProductPage() {
       {/* ── TOPBAR NAVIGATION ── */}
       <div className="excel-page-topbar">
         <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
-          <Link href="/products" className="excel-back-btn" title="Back to Products">
+          <button
+            type="button"
+            onClick={handleRequestBack}
+            className="excel-back-btn"
+            title="Back to Products"
+            style={{
+              cursor: 'pointer',
+              border: '1px solid rgba(255, 255, 255, 0.2)',
+              background: 'rgba(255, 255, 255, 0.15)',
+            }}
+          >
             <FiArrowLeft size={16} />
             <span>Products</span>
-          </Link>
+          </button>
           <div className="excel-page-title-box">
             <div>
               <h2 className="excel-page-title">
-                {activeSheet === 'details'
-                  ? 'Add Product'
-                  : `Variants — ${mainProduct.name || 'New Product'}`}
+                {editId
+                  ? (activeSheet === 'details'
+                      ? `Edit Product — ${mainProduct.name || 'Product'}`
+                      : `Variants — ${mainProduct.name || 'Product'}`)
+                  : (activeSheet === 'details'
+                      ? 'Add Product'
+                      : `Variants — ${mainProduct.name || 'New Product'}`)}
               </h2>
               <p className="excel-page-subtitle">
-                {activeSheet === 'details'
-                  ? 'Enter product details, then add variants'
-                  : 'Add unit, size, color and other variants'}
+                {editId
+                  ? (activeSheet === 'details'
+                      ? 'Update product details, then review variants'
+                      : 'Manage unit, size, color and other variants')
+                  : (activeSheet === 'details'
+                      ? 'Enter product details, then add variants'
+                      : 'Add unit, size, color and other variants')}
               </p>
             </div>
           </div>
@@ -1189,7 +1734,7 @@ export default function AddProductPage() {
           <button
             type="button"
             className={`sheet-nav-btn ${activeSheet === 'details' ? 'active' : ''}`}
-            onClick={() => setActiveSheet('details')}
+            onClick={handleBackToDetails}
           >
             <FiBox size={14} />
             <span>1. Product Details</span>
@@ -1260,7 +1805,7 @@ export default function AddProductPage() {
                 padding: '7px 18px',
               }}
             >
-              <FiCheck size={16} /> {saving ? 'Saving…' : 'Save Product'}
+              <FiCheck size={16} /> {saving ? (editId ? 'Updating…' : 'Saving…') : (editId ? 'Update Product' : 'Save Product')}
             </button>
           )}
         </div>
@@ -1284,15 +1829,45 @@ export default function AddProductPage() {
             <FiHelpCircle size={14} style={{ color: 'var(--accent-blue)' }} />
             <span>Click any cell to edit • Press <strong>Tab</strong> to navigate columns</span>
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+            <span
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '4px',
+                color: '#16a34a',
+                fontWeight: 700,
+                fontSize: '11px',
+                background: '#f0fdf4',
+                border: '1px solid #bbf7d0',
+                padding: '2px 7px',
+                borderRadius: '4px',
+              }}
+              title="Added rows and entered values are saved automatically in your browser"
+            >
+              ✓ Auto-saved
+            </span>
+            <button
+              type="button"
+              onClick={requestResetSheet}
+              style={{
+                background: 'transparent',
+                border: '1px solid #cbd5e1',
+                borderRadius: '4px',
+                padding: '2px 8px',
+                fontSize: '11px',
+                color: '#64748b',
+                cursor: 'pointer',
+                fontWeight: 600,
+              }}
+              title="Reset worksheet to default blank rows"
+            >
+              Reset Sheet
+            </button>
             {productRows.length > 1 && (
               <button
                 type="button"
-                onClick={() => {
-                  setProductRows((prev) => prev.filter((_, idx) => idx !== activeProdRowIdx));
-                  setActiveProdRowIdx((prev) => Math.max(0, prev - 1));
-                  showToast(`Product Row ${activeProdRowIdx + 1} removed`, 'info');
-                }}
+                onClick={() => requestDeleteProductRow(activeProdRowIdx)}
                 className="excel-row-del-btn"
                 style={{ padding: '2px 9px', fontSize: '11px' }}
                 title="Remove currently selected product row"
@@ -1315,12 +1890,7 @@ export default function AddProductPage() {
           <button
             type="button"
             className="excel-ribbon-btn"
-            onClick={() => {
-              setVariantRows((prev) => [...prev, createEmptyVariantRow(Date.now())]);
-              setActiveVarRowIdx(variantRows.length);
-              setActiveVarCol('unitId');
-              showToast(`Variant Row ${variantRows.length + 1} added`, 'info');
-            }}
+            onClick={requestAddVariantRow}
           >
             <FiPlus style={{ color: 'var(--accent-blue)' }} /> Add Variant Row
           </button>
@@ -1342,16 +1912,7 @@ export default function AddProductPage() {
           <button
             type="button"
             className="excel-ribbon-btn"
-            onClick={() => {
-              if (variantRows.length <= 1) {
-                setVariantRows([createEmptyVariantRow(1)]);
-                showToast('Row cleared', 'info');
-                return;
-              }
-              setVariantRows((prev) => prev.filter((_, idx) => idx !== activeVarRowIdx));
-              setActiveVarRowIdx((prev) => Math.max(0, prev - 1));
-              showToast('Variant row deleted', 'info');
-            }}
+            onClick={() => requestDeleteVariantRow(activeVarRowIdx)}
           >
             <FiTrash2 style={{ color: '#ef4444' }} /> Delete Row
           </button>
@@ -1388,6 +1949,25 @@ export default function AddProductPage() {
             </button>
           </div>
 
+          <span
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '4px',
+              color: '#16a34a',
+              fontWeight: 700,
+              fontSize: '11px',
+              background: '#f0fdf4',
+              border: '1px solid #bbf7d0',
+              padding: '3px 8px',
+              borderRadius: '4px',
+              marginLeft: '6px',
+            }}
+            title="All added variant rows are preserved across page refresh"
+          >
+            ✓ Auto-saved
+          </span>
+
           <div className="excel-ribbon-tip">
             <FiHelpCircle size={13} style={{ color: 'var(--accent-blue)' }} />
             <span>Click any cell to edit • Press Tab to navigate</span>
@@ -1411,7 +1991,7 @@ export default function AddProductPage() {
                       {col.label}
                     </th>
                   ))}
-                  <th style={{ width: '80px', textAlign: 'center' }}>Action</th>
+                  <th style={{ width: '140px', textAlign: 'center' }}>Action</th>
                 </tr>
               </thead>
               <tbody>
@@ -1419,6 +1999,17 @@ export default function AddProductPage() {
                   const isRowActive = activeProdRowIdx === rIdx;
                   const subcats = subcatCache[row.categoryId] || [];
                   const imgCount = (row.images || []).length;
+                  const validRowVariants = (row.variants || []).filter(
+                    (v) =>
+                      (v.unitId && String(v.unitId).trim()) ||
+                      (v.size && String(v.size).trim()) ||
+                      (v.color && String(v.color).trim()) ||
+                      (v.description && String(v.description).trim()) ||
+                      (v.images && v.images.length > 0) ||
+                      (v.customFields && v.customFields.some((f) => f.label && f.label.trim()))
+                  );
+                  const hasRowVariants = validRowVariants.length > 0;
+                  const rowVariantCount = validRowVariants.length;
 
                   return (
                     <tr key={row.id || rIdx}>
@@ -1436,14 +2027,7 @@ export default function AddProductPage() {
                           className="excel-row-quick-del-btn"
                           onClick={(e) => {
                             e.stopPropagation();
-                            if (productRows.length <= 1) {
-                              setProductRows([createEmptyProductRow(1)]);
-                              showToast('Product row cleared', 'info');
-                            } else {
-                              setProductRows((prev) => prev.filter((_, idx) => idx !== rIdx));
-                              setActiveProdRowIdx((prev) => Math.max(0, prev - 1));
-                              showToast(`Product Row ${rIdx + 1} removed`, 'info');
-                            }
+                            requestDeleteProductRow(rIdx);
                           }}
                           title={productRows.length > 1 ? `Remove Row ${rIdx + 1}` : 'Clear Row'}
                         >
@@ -1677,25 +2261,28 @@ export default function AddProductPage() {
                           }}
                         />
                       </td>
-                      <td style={{ textAlign: 'center', verticalAlign: 'middle', padding: '4px' }}>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            if (productRows.length <= 1) {
-                              setProductRows([createEmptyProductRow(1)]);
-                              showToast('Product row cleared', 'info');
-                            } else {
-                              setProductRows((prev) => prev.filter((_, idx) => idx !== rIdx));
-                              setActiveProdRowIdx((prev) => Math.max(0, prev - 1));
-                              showToast(`Product Row ${rIdx + 1} removed`, 'info');
-                            }
-                          }}
-                          className="excel-row-del-btn"
-                          title={productRows.length > 1 ? `Remove Row ${rIdx + 1}` : 'Clear Row'}
-                        >
-                          <FiTrash2 size={12} />
-                          <span>Remove</span>
-                        </button>
+                      <td style={{ textAlign: 'center', verticalAlign: 'middle', padding: '4px 8px', whiteSpace: 'nowrap' }}>
+                        {hasRowVariants ? (
+                          <button
+                            type="button"
+                            onClick={() => handleOpenVariantsForRow(rIdx)}
+                            className="excel-row-view-variant-btn"
+                            title={`View ${rowVariantCount} variant(s) for this product`}
+                          >
+                            <FiEye size={12} />
+                            <span>View Variant{rowVariantCount > 0 ? ` (${rowVariantCount})` : ''}</span>
+                          </button>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => handleOpenVariantsForRow(rIdx)}
+                            className="excel-row-add-variant-btn"
+                            title="Add variants for this product"
+                          >
+                            <FiPlus size={12} />
+                            <span>Add Variant</span>
+                          </button>
+                        )}
                       </td>
                     </tr>
                   );
@@ -1712,13 +2299,7 @@ export default function AddProductPage() {
                       background: '#f8fafc',
                       cursor: 'pointer',
                     }}
-                    onClick={() => {
-                      const nextIdx = productRows.length;
-                      setProductRows((prev) => [...prev, createEmptyProductRow(nextIdx + 1)]);
-                      setActiveProdRowIdx(nextIdx);
-                      setActiveProdCol('name');
-                      showToast(`Product Row ${nextIdx + 1} added`, 'info');
-                    }}
+                    onClick={requestAddProductRow}
                     title="Add new product row"
                   >
                     <button
@@ -1755,13 +2336,7 @@ export default function AddProductPage() {
                       color: 'var(--text-muted)',
                       fontSize: '12px',
                     }}
-                    onClick={() => {
-                      const nextIdx = productRows.length;
-                      setProductRows((prev) => [...prev, createEmptyProductRow(nextIdx + 1)]);
-                      setActiveProdRowIdx(nextIdx);
-                      setActiveProdCol('name');
-                      showToast(`Product Row ${nextIdx + 1} added`, 'info');
-                    }}
+                    onClick={requestAddProductRow}
                   >
                     <span
                       style={{
@@ -1802,12 +2377,32 @@ export default function AddProductPage() {
                 <span style={{ fontSize: '16px' }}>📦</span>
               )}
               <span style={{ fontSize: '13px', fontWeight: 800, color: '#14532d' }}>
-                Adding Variants for: <u>{mainProduct.name || 'New Product'}</u>
+                Variants for: <u>{mainProduct.name || `Row #${activeProdRowIdx + 1}`}</u>
               </span>
               <span style={{ fontSize: '11.5px', color: '#16a34a' }}>
                 • Total Variants: <strong>{variantRows.length}</strong>
               </span>
             </div>
+            <button
+              type="button"
+              onClick={handleBackToDetails}
+              className="btn btn-outline"
+              style={{
+                fontSize: '12px',
+                padding: '4px 12px',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '5px',
+                background: '#ffffff',
+                borderColor: '#86efac',
+                color: '#15803d',
+                fontWeight: 700,
+                cursor: 'pointer',
+              }}
+              title="Return to Sheet 1 Product Details"
+            >
+              ← Back to Products (Sheet 1)
+            </button>
           </div>
 
           {/* ── MODE 1: EXCEL SPREADSHEET FOR VARIANTS ── */}
@@ -1848,14 +2443,7 @@ export default function AddProductPage() {
                             className="excel-row-quick-del-btn"
                             onClick={(e) => {
                               e.stopPropagation();
-                              if (variantRows.length <= 1) {
-                                setVariantRows([createEmptyVariantRow(1)]);
-                                showToast('Variant row cleared', 'info');
-                              } else {
-                                setVariantRows((prev) => prev.filter((_, idx) => idx !== rIdx));
-                                setActiveVarRowIdx((prev) => Math.max(0, prev - 1));
-                                showToast(`Variant Row ${rIdx + 1} removed`, 'info');
-                              }
+                              requestDeleteVariantRow(rIdx);
                             }}
                             title={variantRows.length > 1 ? `Remove Variant Row ${rIdx + 1}` : 'Clear Row'}
                           >
@@ -2027,16 +2615,7 @@ export default function AddProductPage() {
                         <td style={{ textAlign: 'center', verticalAlign: 'middle', padding: '4px' }}>
                           <button
                             type="button"
-                            onClick={() => {
-                              if (variantRows.length <= 1) {
-                                setVariantRows([createEmptyVariantRow(1)]);
-                                showToast('Variant row cleared', 'info');
-                              } else {
-                                setVariantRows((prev) => prev.filter((_, idx) => idx !== rIdx));
-                                setActiveVarRowIdx((prev) => Math.max(0, prev - 1));
-                                showToast(`Variant Row ${rIdx + 1} removed`, 'info');
-                              }
-                            }}
+                            onClick={() => requestDeleteVariantRow(rIdx)}
                             className="excel-row-del-btn"
                             title={variantRows.length > 1 ? `Remove Variant Row ${rIdx + 1}` : 'Clear Row'}
                           >
@@ -2059,13 +2638,7 @@ export default function AddProductPage() {
                       background: '#f8fafc',
                       cursor: 'pointer',
                     }}
-                    onClick={() => {
-                      const nextIdx = variantRows.length;
-                      setVariantRows((prev) => [...prev, createEmptyVariantRow(Date.now())]);
-                      setActiveVarRowIdx(nextIdx);
-                      setActiveVarCol('unitId');
-                      showToast(`Variant Row ${nextIdx + 1} added`, 'info');
-                    }}
+                    onClick={requestAddVariantRow}
                     title="Add new variant row"
                   >
                     <button
@@ -2102,13 +2675,7 @@ export default function AddProductPage() {
                       color: 'var(--text-muted)',
                       fontSize: '12px',
                     }}
-                    onClick={() => {
-                      const nextIdx = variantRows.length;
-                      setVariantRows((prev) => [...prev, createEmptyVariantRow(Date.now())]);
-                      setActiveVarRowIdx(nextIdx);
-                      setActiveVarCol('unitId');
-                      showToast(`Variant Row ${nextIdx + 1} added`, 'info');
-                    }}
+                    onClick={requestAddVariantRow}
                   >
                     <span
                       style={{
@@ -2149,9 +2716,7 @@ export default function AddProductPage() {
                     {variantRows.length > 1 && (
                       <button
                         type="button"
-                        onClick={() =>
-                          setVariantRows((prev) => prev.filter((_, idx) => idx !== rIdx))
-                        }
+                        onClick={() => requestDeleteVariantRow(rIdx)}
                         style={{
                           background: 'none',
                           border: 'none',
@@ -2351,15 +2916,7 @@ export default function AddProductPage() {
                     <button
                       type="button"
                       className="variant-btn-cancel"
-                      onClick={() => {
-                        if (variantRows.length > 1) {
-                          setVariantRows((prev) => prev.filter((_, idx) => idx !== rIdx));
-                          showToast(`Variant #${rIdx + 1} discarded`, 'info');
-                        } else {
-                          setVariantRows([createEmptyVariantRow(1)]);
-                          showToast('Variant reset to blank', 'info');
-                        }
-                      }}
+                      onClick={() => requestDeleteVariantRow(rIdx)}
                     >
                       Cancel
                     </button>
@@ -2384,10 +2941,7 @@ export default function AddProductPage() {
               <button
                 type="button"
                 className="btn btn-outline"
-                onClick={() => {
-                  setVariantRows((prev) => [...prev, createEmptyVariantRow(Date.now())]);
-                  showToast('New variant added', 'info');
-                }}
+                onClick={requestAddVariantRow}
                 style={{
                   padding: '12px',
                   borderRadius: '10px',
@@ -2611,7 +3165,282 @@ export default function AddProductPage() {
           </div>
         </div>
       )}
+
+      {/* ── CONFIRMATION MODAL POPUP FOR ADD / DELETE ROW ── */}
+      {confirmModal && (
+        <div
+          className="excel-img-popover-overlay"
+          onClick={() => setConfirmModal(null)}
+          style={{ zIndex: 1200 }}
+        >
+          <div
+            className="excel-confirm-modal-card"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div
+              style={{
+                padding: '24px 24px 18px',
+                display: 'flex',
+                alignItems: 'flex-start',
+                gap: '16px',
+              }}
+            >
+              <div
+                style={{
+                  width: '44px',
+                  height: '44px',
+                  borderRadius: '12px',
+                  background: confirmModal.isDanger ? '#fee2e2' : '#eff6ff',
+                  color: confirmModal.isDanger ? '#dc2626' : 'var(--accent-blue)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  flexShrink: 0,
+                  fontSize: '20px',
+                }}
+              >
+                {confirmModal.isDanger ? <FiTrash2 size={22} /> : <FiPlus size={24} />}
+              </div>
+              <div style={{ flex: 1 }}>
+                <h3
+                  style={{
+                    margin: '0 0 6px 0',
+                    fontSize: '16px',
+                    fontWeight: 700,
+                    color: 'var(--text-main, #0f172a)',
+                  }}
+                >
+                  {confirmModal.title}
+                </h3>
+                <p
+                  style={{
+                    margin: 0,
+                    fontSize: '13.5px',
+                    color: '#64748b',
+                    lineHeight: '1.5',
+                  }}
+                >
+                  {confirmModal.message}
+                </p>
+              </div>
+            </div>
+
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'flex-end',
+                gap: '10px',
+                padding: '14px 24px',
+                background: '#f8fafc',
+                borderTop: '1px solid #e2e8f0',
+              }}
+            >
+              <button
+                type="button"
+                className="btn btn-outline"
+                style={{
+                  padding: '7px 16px',
+                  fontSize: '13px',
+                  fontWeight: 600,
+                  borderRadius: '8px',
+                }}
+                onClick={() => setConfirmModal(null)}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="btn btn-primary"
+                style={{
+                  padding: '7px 18px',
+                  fontSize: '13px',
+                  fontWeight: 700,
+                  borderRadius: '8px',
+                  background: confirmModal.isDanger ? '#dc2626' : 'var(--accent-blue)',
+                  borderColor: confirmModal.isDanger ? '#dc2626' : 'var(--accent-blue)',
+                  color: '#ffffff',
+                }}
+                onClick={() => {
+                  const action = confirmModal.onConfirm;
+                  setConfirmModal(null);
+                  if (typeof action === 'function') action();
+                }}
+              >
+                {confirmModal.confirmText || 'Yes, Confirm'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── BACK CONFIRMATION MODAL (SAVE / DISCARD / CANCEL) ── */}
+      {showBackModal && (
+        <div
+          className="excel-img-popover-overlay"
+          onClick={handleCancelBack}
+          style={{ zIndex: 1250 }}
+        >
+          <div
+            className="excel-confirm-modal-card"
+            onClick={(e) => e.stopPropagation()}
+            style={{ maxWidth: '460px' }}
+          >
+            <div
+              style={{
+                padding: '24px 24px 18px',
+                display: 'flex',
+                alignItems: 'flex-start',
+                gap: '16px',
+              }}
+            >
+              <div
+                style={{
+                  width: '46px',
+                  height: '46px',
+                  borderRadius: '12px',
+                  background: '#fef3c7',
+                  color: '#d97706',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  flexShrink: 0,
+                  fontSize: '22px',
+                }}
+              >
+                <FiAlertCircle size={26} />
+              </div>
+              <div style={{ flex: 1 }}>
+                <h3
+                  style={{
+                    margin: '0 0 6px 0',
+                    fontSize: '17px',
+                    fontWeight: 700,
+                    color: 'var(--text-main, #0f172a)',
+                  }}
+                >
+                  Save changes before leaving?
+                </h3>
+                <p
+                  style={{
+                    margin: 0,
+                    fontSize: '13.5px',
+                    color: '#64748b',
+                    lineHeight: '1.5',
+                  }}
+                >
+                  You have product details in this worksheet. Would you like to save your progress to drafts, or discard changes before leaving?
+                </p>
+              </div>
+            </div>
+
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                padding: '14px 20px',
+                background: '#f8fafc',
+                borderTop: '1px solid #e2e8f0',
+                gap: '10px',
+                flexWrap: 'wrap',
+              }}
+            >
+              <button
+                type="button"
+                onClick={handleDiscardBack}
+                style={{
+                  padding: '8px 14px',
+                  fontSize: '13px',
+                  fontWeight: 600,
+                  borderRadius: '8px',
+                  background: '#fee2e2',
+                  border: '1px solid #fca5a5',
+                  color: '#dc2626',
+                  cursor: 'pointer',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  transition: 'all 0.15s ease',
+                }}
+                title="Discard entered changes and return to products"
+              >
+                <FiTrash2 size={14} /> Discard
+              </button>
+
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginLeft: 'auto' }}>
+                <button
+                  type="button"
+                  onClick={handleCancelBack}
+                  style={{
+                    padding: '8px 15px',
+                    fontSize: '13px',
+                    fontWeight: 600,
+                    borderRadius: '8px',
+                    background: '#ffffff',
+                    border: '1px solid #cbd5e1',
+                    color: '#475569',
+                    cursor: 'pointer',
+                    transition: 'all 0.15s ease',
+                  }}
+                  title="Stay on this page"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={handleSaveBack}
+                  style={{
+                    padding: '8px 18px',
+                    fontSize: '13px',
+                    fontWeight: 700,
+                    borderRadius: '8px',
+                    background: '#10b981',
+                    border: '1px solid #10b981',
+                    color: '#ffffff',
+                    cursor: 'pointer',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    boxShadow: '0 2px 8px rgba(16, 185, 129, 0.25)',
+                    transition: 'all 0.15s ease',
+                  }}
+                  title="Save product to drafts and return to products"
+                >
+                  <FiCheck size={16} /> Save
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   </>
 );
+}
+
+export default function AddProductPage() {
+  return (
+    <Suspense
+      fallback={
+        <div
+          style={{
+            minHeight: '80vh',
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: '12px',
+            color: '#64748b',
+            fontSize: '14px',
+          }}
+        >
+          <div className="spinner" />
+          <span>Loading product worksheet…</span>
+        </div>
+      }
+    >
+      <AddProductPageContent />
+    </Suspense>
+  );
 }

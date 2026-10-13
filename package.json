@@ -3,9 +3,9 @@
   "version": "1.0.0",
   "private": true,
   "scripts": {
-    "dev": "next dev || node ./node_modules/next/dist/bin/next dev",
-    "build": "next build || node ./node_modules/next/dist/bin/next build",
-    "start": "next start || node ./node_modules/next/dist/bin/next start"
+    "dev": "node \"./node_modules/next/dist/bin/next\" dev",
+    "build": "node \"./node_modules/next/dist/bin/next\" build",
+    "start": "node \"./node_modules/next/dist/bin/next\" start"
   },
   "dependencies": {
     "next": "^14.2.5",

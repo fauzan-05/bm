@@ -22,6 +22,7 @@ import GenericModal from '@/components/GenericModal';
 import ConfirmModal from '@/components/ConfirmModal';
 import ProductModal from '@/components/ProductModal';
 import { mockMasterData } from '@/lib/mockData';
+import { archiveToDrafts } from '@/lib/drafts';
 
 export default function CategoriesPage() {
   const { masterData, refreshMasterData } = useAuth();
@@ -181,13 +182,23 @@ export default function CategoriesPage() {
   };
 
   const deleteMainCat = (id) => {
+    const item = items.find((i) => i.id === id) || { id, title: `Main Category #${id}` };
     setConfirmModal({
       open: true,
-      message: 'Delete this main category and all its contents?',
+      message: 'Delete this main category and move to Drafts?',
       onConfirm: async () => {
         try {
-          await api('DELETE', `/admin/main-categories/${id}`);
-          showToast('Deleted', 'success');
+          archiveToDrafts({
+            name: item.title || item.name,
+            source_page: 'categories',
+            source_label: 'Categories',
+            item_type: 'main_category',
+            original_data: item,
+            image: item.image,
+            description: item.description,
+          });
+          await api('DELETE', `/admin/main-categories/${id}`).catch(() => {});
+          showToast(`"${item.title || item.name}" moved to Drafts`, 'success');
           setConfirmModal({ open: false });
           refreshMasterData();
           loadCurrentLevel();
@@ -244,13 +255,23 @@ export default function CategoriesPage() {
   };
 
   const deleteCategory = (id) => {
+    const item = items.find((i) => i.id === id) || { id, name: `Category #${id}` };
     setConfirmModal({
       open: true,
-      message: 'Delete this category and all its products?',
+      message: 'Delete this category and move to Drafts?',
       onConfirm: async () => {
         try {
-          await api('DELETE', `/admin/categories/${id}`);
-          showToast('Deleted', 'success');
+          archiveToDrafts({
+            name: item.name,
+            source_page: 'categories',
+            source_label: 'Categories',
+            item_type: 'category',
+            original_data: item,
+            image: item.image,
+            description: item.description,
+          });
+          await api('DELETE', `/admin/categories/${id}`).catch(() => {});
+          showToast(`"${item.name}" moved to Drafts`, 'success');
           setConfirmModal({ open: false });
           refreshMasterData();
           loadCurrentLevel();
@@ -309,13 +330,23 @@ export default function CategoriesPage() {
   };
 
   const deleteSubcat = (id) => {
+    const item = items.find((i) => i.id === id) || { id, name: `Subcategory #${id}` };
     setConfirmModal({
       open: true,
-      message: 'Delete this subcategory and all its products?',
+      message: 'Delete this subcategory and move to Drafts?',
       onConfirm: async () => {
         try {
-          await api('DELETE', `/admin/subcategories/${id}`);
-          showToast('Deleted', 'success');
+          archiveToDrafts({
+            name: item.name,
+            source_page: 'categories',
+            source_label: 'Categories',
+            item_type: 'subcategory',
+            original_data: item,
+            image: item.image,
+            description: item.description,
+          });
+          await api('DELETE', `/admin/subcategories/${id}`).catch(() => {});
+          showToast(`"${item.name}" moved to Drafts`, 'success');
           setConfirmModal({ open: false });
           refreshMasterData();
           loadCurrentLevel();
@@ -328,13 +359,21 @@ export default function CategoriesPage() {
 
   // Delete product in leaf subcategory
   const deleteLeafProduct = (id) => {
+    const item = leafProducts.find((p) => p.id === id) || { id, name: `Product #${id}` };
     setConfirmModal({
       open: true,
-      message: 'Delete this product?',
+      message: 'Delete this product and move to Drafts?',
       onConfirm: async () => {
         try {
-          await api('DELETE', `/admin/products/${id}`);
-          showToast('Product deleted', 'success');
+          archiveToDrafts({
+            name: item.name,
+            source_page: 'products',
+            source_label: 'Products',
+            item_type: 'product',
+            original_data: item,
+          });
+          await api('DELETE', `/admin/products/${id}`).catch(() => {});
+          showToast(`"${item.name}" moved to Drafts`, 'success');
           setConfirmModal({ open: false });
           loadCurrentLevel();
         } catch (err) {

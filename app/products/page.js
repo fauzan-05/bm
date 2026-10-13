@@ -2,10 +2,12 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { api, resolveImg, downloadTemplate } from '@/lib/api';
 import { useAuth } from '@/context/AuthContext';
 import { useToast } from '@/context/ToastContext';
 import { mockProducts } from '@/lib/mockData';
+import { archiveToDrafts } from '@/lib/drafts';
 import {
   FiPlus,
   FiUploadCloud,
@@ -22,7 +24,38 @@ import ConfirmModal from '@/components/ConfirmModal';
 
 const ALPHABET = ['ALL', ...'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('')];
 
+// Helper to sort products by latest added first (newest timestamp / highest ID)
+const sortLatestFirst = (list) => {
+  return [...list].sort((a, b) => {
+    // 1. By created_at date descending (newest timestamp first)
+    const timeA = a.created_at ? new Date(a.created_at).getTime() : 0;
+    const timeB = b.created_at ? new Date(b.created_at).getTime() : 0;
+    if (timeA && timeB && timeA !== timeB && !isNaN(timeA) && !isNaN(timeB)) {
+      return timeB - timeA;
+    }
+    if (timeA && !timeB) return -1;
+    if (!timeA && timeB) return 1;
+
+    // 2. By updated_at date descending
+    const updA = a.updated_at ? new Date(a.updated_at).getTime() : 0;
+    const updB = b.updated_at ? new Date(b.updated_at).getTime() : 0;
+    if (updA && updB && updA !== updB && !isNaN(updA) && !isNaN(updB)) {
+      return updB - updA;
+    }
+
+    // 3. By numeric ID descending (higher / newer ID first)
+    const idA = typeof a.id === 'number' ? a.id : parseInt(a.id, 10);
+    const idB = typeof b.id === 'number' ? b.id : parseInt(b.id, 10);
+    if (!isNaN(idA) && !isNaN(idB) && idA !== idB) {
+      return idB - idA;
+    }
+
+    return 0;
+  });
+};
+
 export default function ProductsPage() {
+  const router = useRouter();
   const { masterData } = useAuth();
   const { showToast } = useToast();
 
@@ -48,6 +81,7 @@ export default function ProductsPage() {
   const searchTimerRef = useRef(null);
 
   const loadProducts = useCallback(async () => {
+    setLoading(true);
     try {
       let path = `/admin/products?page=${currentPage}&limit=20`;
       if (selectedCategory) path += `&category_id=${selectedCategory}`;
@@ -55,20 +89,80 @@ export default function ProductsPage() {
         path += `&search=${encodeURIComponent(searchTerm.trim())}`;
       } else if (selectedLetter !== 'ALL') {
         path += `&letter=${selectedLetter}`;
+      } else {
+        path += `&sort=latest&order=desc`;
       }
 
-      const data = await api('GET', path);
-      if (data && data.products && data.products.length > 0) {
-        setProducts(data.products);
-        setTotalPages(data.pagination?.totalPages || 1);
-      } else {
-        setProducts(mockProducts);
-        setTotalPages(1);
+      let fetchedList = [];
+      let totalP = 1;
+      try {
+        const data = await api('GET', path);
+        if (data && data.products && data.products.length > 0) {
+          fetchedList = data.products;
+          totalP = data.pagination?.totalPages || 1;
+        }
+      } catch {
+        // Backend offline fallback
       }
+
+      // Read local custom products saved in browser
+      let localList = [];
+      if (typeof window !== 'undefined') {
+        try {
+          const raw = localStorage.getItem('bm_local_products');
+          if (raw) localList = JSON.parse(raw);
+        } catch {}
+      }
+
+      // Combine local products, fetched products, and fallback mock products
+      let combined = [...localList, ...fetchedList];
+      if (combined.length === 0) {
+        combined = [...mockProducts];
+      }
+
+      // Deduplicate by ID
+      const seen = new Set();
+      let uniqueList = [];
+      for (const item of combined) {
+        const key = String(item.id);
+        if (!seen.has(key)) {
+          seen.add(key);
+          uniqueList.push(item);
+        }
+      }
+
+      // Filter by category if selected
+      if (selectedCategory) {
+        uniqueList = uniqueList.filter(
+          (p) => String(p.category_id) === String(selectedCategory)
+        );
+      }
+
+      // Filter by search term or letter
+      if (searchTerm.trim()) {
+        const q = searchTerm.trim().toLowerCase();
+        uniqueList = uniqueList.filter(
+          (p) =>
+            (p.name || '').toLowerCase().includes(q) ||
+            (p.brand_name || '').toLowerCase().includes(q) ||
+            (p.sku_id || '').toLowerCase().includes(q)
+        );
+      } else if (selectedLetter !== 'ALL') {
+        uniqueList = uniqueList.filter((p) =>
+          (p.name || '').trim().toUpperCase().startsWith(selectedLetter)
+        );
+      } else {
+        // When 'ALL' is selected: sort latest added products first (NOT alphabetical)
+        uniqueList = sortLatestFirst(uniqueList);
+      }
+
+      setProducts(uniqueList);
+      setTotalPages(totalP);
     } catch {
-      // Backend offline fallback
-      setProducts(mockProducts);
+      setProducts(sortLatestFirst(mockProducts));
       setTotalPages(1);
+    } finally {
+      setLoading(false);
     }
   }, [currentPage, selectedCategory, searchTerm, selectedLetter]);
 
@@ -105,20 +199,45 @@ export default function ProductsPage() {
   };
 
   const openEditProduct = (id) => {
-    setEditProductId(id);
-    setProductModalOpen(true);
+    router.push(`/products/add?id=${id}`);
   };
 
   const openVariants = (prod) => {
-    setVariantProduct(prod);
-    setVariantModalOpen(true);
+    router.push(`/products/add?id=${prod.id}&sheet=variants`);
   };
 
   const handleDeleteProduct = async () => {
     if (!deleteProductTarget) return;
     try {
-      await api('DELETE', `/admin/products/${deleteProductTarget.id}`);
-      showToast('Product deleted successfully', 'success');
+      archiveToDrafts({
+        name: deleteProductTarget.name,
+        source_page: 'products',
+        source_label: 'Products',
+        item_type: 'product',
+        original_data: deleteProductTarget,
+        description: deleteProductTarget.description,
+        images: deleteProductTarget.images || (deleteProductTarget.image ? [deleteProductTarget.image] : []),
+        brand_id: deleteProductTarget.brand_id,
+        category_id: deleteProductTarget.category_id,
+        subcategory_id: deleteProductTarget.subcategory_id,
+        gst_percent: deleteProductTarget.gst_percent,
+        is_veg: deleteProductTarget.is_veg,
+      });
+
+      // Remove from local cache as well
+      if (typeof window !== 'undefined') {
+        try {
+          const raw = localStorage.getItem('bm_local_products');
+          if (raw) {
+            const list = JSON.parse(raw);
+            const remaining = list.filter((p) => String(p.id) !== String(deleteProductTarget.id));
+            localStorage.setItem('bm_local_products', JSON.stringify(remaining));
+          }
+        } catch {}
+      }
+
+      await api('DELETE', `/admin/products/${deleteProductTarget.id}`).catch(() => {});
+      showToast(`Product "${deleteProductTarget.name}" moved to Drafts`, 'success');
       setDeleteProductTarget(null);
       loadProducts();
     } catch (err) {
@@ -225,22 +344,20 @@ export default function ProductsPage() {
                   </div>
                   <div className="product-card-sku">{p.sku_id || ''}</div>
                   <div className="product-card-actions">
-                    <button
-                      type="button"
+                    <Link
+                      href={`/products/add?id=${p.id}`}
                       className="btn btn-sm btn-outline"
-                      onClick={() => openEditProduct(p.id)}
                       style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}
                     >
                       <FiEdit2 /> Edit
-                    </button>
-                    <button
-                      type="button"
+                    </Link>
+                    <Link
+                      href={`/products/add?id=${p.id}&sheet=variants`}
                       className="btn btn-sm btn-outline"
-                      onClick={() => openVariants(p)}
                       style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}
                     >
                       <FiLayers /> Variants
-                    </button>
+                    </Link>
                     <button
                       type="button"
                       className="btn btn-sm btn-danger"

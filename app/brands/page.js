@@ -8,6 +8,7 @@ import { mockMasterData } from '@/lib/mockData';
 import GenericModal from '@/components/GenericModal';
 import ConfirmModal from '@/components/ConfirmModal';
 import { FiPlus, FiTag, FiEdit2, FiTrash2, FiUploadCloud } from 'react-icons/fi';
+import { archiveToDrafts } from '@/lib/drafts';
 
 export default function BrandsPage() {
   const { masterData, refreshMasterData } = useAuth();
@@ -106,9 +107,19 @@ export default function BrandsPage() {
 
   const handleDelete = async () => {
     if (!deleteTargetId) return;
+    const item = brands.find((b) => b.id === deleteTargetId) || { id: deleteTargetId, name: `Brand #${deleteTargetId}` };
     try {
-      await api('DELETE', `/admin/brands/${deleteTargetId}`);
-      showToast('Brand deleted', 'success');
+      archiveToDrafts({
+        name: item.name,
+        source_page: 'brands',
+        source_label: 'Brands',
+        item_type: 'brand',
+        original_data: item,
+        image: item.image,
+      });
+
+      await api('DELETE', `/admin/brands/${deleteTargetId}`).catch(() => {});
+      showToast(`Brand "${item.name}" moved to Drafts`, 'success');
       setDeleteTargetId(null);
       refreshMasterData();
       loadBrands();

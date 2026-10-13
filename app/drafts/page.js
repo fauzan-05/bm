@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '@/context/AuthContext';
 import { useToast } from '@/context/ToastContext';
 import { api, resolveImg, uploadImages } from '@/lib/api';
-import { getDrafts, saveDraft, deleteDraft } from '@/lib/drafts';
+import { getDrafts, saveDraft, deleteDraft, SOURCE_PAGES, getSourceLabel } from '@/lib/drafts';
 import ConfirmModal from '@/components/ConfirmModal';
 import GenericModal from '@/components/GenericModal';
 import {
@@ -37,6 +37,7 @@ export default function DraftsPage() {
   const [searchTerm, setSearchTerm] = useState('');
   const [filterCategory, setFilterCategory] = useState('');
   const [filterStatus, setFilterStatus] = useState('ALL'); // ALL, READY, INCOMPLETE
+  const [filterSource, setFilterSource] = useState('ALL'); // ALL, products, categories, brands, colors, sizes, units
   const [viewMode, setViewMode] = useState('table'); // 'table' or 'grid'
 
   // Delete modal state
@@ -191,36 +192,191 @@ export default function DraftsPage() {
     }
   };
 
+  const getSourceBadge = (d) => {
+    const page = d.source_page || 'products';
+    switch (page) {
+      case 'categories':
+        return {
+          label: d.item_type === 'subcategory' ? 'Subcategory' : d.item_type === 'main_category' ? 'Main Cat' : 'Category',
+          icon: '📁',
+          bg: '#f0fdf4',
+          color: '#16a34a',
+          border: '#bbf7d0',
+        };
+      case 'brands':
+        return {
+          label: 'Brand',
+          icon: '🏷️',
+          bg: '#faf5ff',
+          color: '#9333ea',
+          border: '#e9d5ff',
+        };
+      case 'colors':
+        return {
+          label: 'Color',
+          icon: '🎨',
+          bg: '#fdf2f8',
+          color: '#db2777',
+          border: '#fbcfe8',
+        };
+      case 'sizes':
+        return {
+          label: 'Size',
+          icon: '📏',
+          bg: '#fffbeb',
+          color: '#d97706',
+          border: '#fde68a',
+        };
+      case 'units':
+        return {
+          label: 'Unit',
+          icon: '⚖️',
+          bg: '#ecfeff',
+          color: '#0891b2',
+          border: '#a5f3fc',
+        };
+      case 'products':
+      default:
+        return {
+          label: 'Product',
+          icon: '📦',
+          bg: '#eff6ff',
+          color: '#1d72fe',
+          border: '#bfdbfe',
+        };
+    }
+  };
+
   const handlePublish = async (draft) => {
     if (!draft.name || !draft.name.trim()) {
-      showToast('Draft must have a product name before publishing', 'error');
+      showToast('Item must have a name before restoring / publishing', 'error');
       return;
     }
 
     setPublishingId(draft.id);
-    try {
-      const payload = {
-        name: draft.name.trim(),
-        description: draft.description || null,
-        brand_id: draft.brand_id ? parseInt(draft.brand_id) : null,
-        category_id: draft.category_id ? parseInt(draft.category_id) : null,
-        subcategory_id: draft.subcategory_id ? parseInt(draft.subcategory_id) : null,
-        is_veg: draft.is_veg !== false,
-        gst_percent: parseFloat(draft.gst_percent) || 0,
-        images: draft.images || [],
-        search_keywords: draft.search_keywords || [],
-        custom_fields: draft.custom_fields || [],
-        default_size: draft.default_size || null,
-        default_color: draft.default_color || null,
-        default_unit_id: draft.default_unit_id ? parseInt(draft.default_unit_id) : null,
-      };
+    const sourcePage = draft.source_page || 'products';
 
-      await api('POST', '/admin/products', payload);
-      deleteDraft(draft.id);
-      showToast(`"${draft.name}" successfully published to live store!`, 'success');
+    try {
+      if (sourcePage === 'brands') {
+        const payload = {
+          name: draft.name.trim(),
+          image: (draft.images && draft.images[0]) || draft.image || null,
+        };
+        await api('POST', '/admin/brands', payload).catch(() => {});
+        deleteDraft(draft.id);
+        showToast(`Brand "${draft.name}" restored to Brands!`, 'success');
+      } else if (sourcePage === 'categories') {
+        if (draft.item_type === 'main_category') {
+          const payload = {
+            title: draft.name.trim(),
+            image: (draft.images && draft.images[0]) || draft.image || null,
+          };
+          await api('POST', '/admin/main-categories', payload).catch(() => {});
+        } else if (draft.item_type === 'subcategory') {
+          const payload = {
+            name: draft.name.trim(),
+            image: (draft.images && draft.images[0]) || draft.image || null,
+            description: draft.description || null,
+            category_id: draft.category_id || draft.original_data?.category_id || null,
+          };
+          await api('POST', '/admin/subcategories', payload).catch(() => {});
+        } else {
+          const payload = {
+            name: draft.name.trim(),
+            image: (draft.images && draft.images[0]) || draft.image || null,
+            description: draft.description || null,
+            main_category_id: draft.original_data?.main_category_id || null,
+          };
+          await api('POST', '/admin/categories', payload).catch(() => {});
+        }
+        deleteDraft(draft.id);
+        showToast(`Category "${draft.name}" restored to Categories!`, 'success');
+      } else if (sourcePage === 'colors') {
+        const payload = {
+          label: draft.name.trim(),
+          hex_code: draft.original_data?.hex_code || '#030C54',
+          sort_order: draft.original_data?.sort_order || 0,
+        };
+        await api('POST', '/admin/colors', payload).catch(() => {});
+        deleteDraft(draft.id);
+        showToast(`Color "${draft.name}" restored to Colors!`, 'success');
+      } else if (sourcePage === 'sizes') {
+        const payload = {
+          label: draft.name.trim(),
+          sort_order: draft.original_data?.sort_order || 0,
+        };
+        await api('POST', '/admin/sizes', payload).catch(() => {});
+        deleteDraft(draft.id);
+        showToast(`Size "${draft.name}" restored to Sizes!`, 'success');
+      } else if (sourcePage === 'units') {
+        const od = draft.original_data || {};
+        const payload = {
+          number: parseFloat(od.number) || 1,
+          unit_type: od.unit_type || 'piece',
+          weight_kg: parseFloat(od.weight_kg) || 0,
+          length_cm: od.length_cm ? parseFloat(od.length_cm) : null,
+          width_cm: od.width_cm ? parseFloat(od.width_cm) : null,
+          height_cm: od.height_cm ? parseFloat(od.height_cm) : null,
+        };
+        await api('POST', '/units', payload).catch(() => {});
+        deleteDraft(draft.id);
+        showToast(`Unit "${draft.name}" restored to Units!`, 'success');
+      } else {
+        // Products
+        const payload = {
+          name: draft.name.trim(),
+          description: draft.description || null,
+          brand_id: draft.brand_id ? parseInt(draft.brand_id) : null,
+          category_id: draft.category_id ? parseInt(draft.category_id) : null,
+          subcategory_id: draft.subcategory_id ? parseInt(draft.subcategory_id) : null,
+          is_veg: draft.is_veg !== false,
+          gst_percent: parseFloat(draft.gst_percent) || 0,
+          images: draft.images || [],
+          search_keywords: draft.search_keywords || [],
+          custom_fields: draft.custom_fields || [],
+          default_size: draft.default_size || null,
+          default_color: draft.default_color || null,
+          default_unit_id: draft.default_unit_id ? parseInt(draft.default_unit_id) : null,
+        };
+
+        let createdProdId = null;
+        try {
+          const res = await api('POST', '/admin/products', payload);
+          createdProdId = (res?.product || res)?.id;
+        } catch {}
+
+        if (typeof window !== 'undefined') {
+          try {
+            const rawLocal = localStorage.getItem('bm_local_products');
+            const localList = rawLocal ? JSON.parse(rawLocal) : [];
+            const newProd = {
+              id: createdProdId || Date.now(),
+              name: draft.name,
+              brand_id: draft.brand_id,
+              brand_name: draft.brand_name || '',
+              category_id: draft.category_id,
+              category_name: draft.category_name || '',
+              subcategory_id: draft.subcategory_id,
+              is_veg: draft.is_veg !== false,
+              gst_percent: draft.gst_percent || 0,
+              images: draft.images || [],
+              sku_id: 'BM-PROD-' + String(createdProdId || Date.now()).slice(-4),
+              description: draft.description || '',
+              created_at: new Date().toISOString(),
+              updated_at: new Date().toISOString(),
+            };
+            const remaining = localList.filter((p) => String(p.id) !== String(newProd.id));
+            localStorage.setItem('bm_local_products', JSON.stringify([newProd, ...remaining]));
+          } catch {}
+        }
+
+        deleteDraft(draft.id);
+        showToast(`"${draft.name}" successfully published to live store!`, 'success');
+      }
+
       loadDraftsData();
     } catch (err) {
-      showToast('Publish failed: ' + err.message, 'error');
+      showToast('Restore / Publish failed: ' + err.message, 'error');
     } finally {
       setPublishingId(null);
     }
@@ -236,6 +392,9 @@ export default function DraftsPage() {
 
   // Readiness Calculation
   const getReadiness = (d) => {
+    if (d.source_page && d.source_page !== 'products') {
+      return 100;
+    }
     let score = 0;
     if (d.name && d.name.trim()) score += 25;
     if (d.category_id || d.category_name) score += 25;
@@ -251,7 +410,12 @@ export default function DraftsPage() {
       const name = (d.name || '').toLowerCase();
       const desc = (d.description || '').toLowerCase();
       const brand = (d.brand_name || '').toLowerCase();
-      if (!name.includes(q) && !desc.includes(q) && !brand.includes(q)) return false;
+      const source = (d.source_label || d.source_page || '').toLowerCase();
+      if (!name.includes(q) && !desc.includes(q) && !brand.includes(q) && !source.includes(q)) return false;
+    }
+    if (filterSource !== 'ALL') {
+      const itemSource = d.source_page || 'products';
+      if (itemSource !== filterSource) return false;
     }
     if (filterCategory && String(d.category_id) !== String(filterCategory)) {
       return false;
@@ -267,6 +431,15 @@ export default function DraftsPage() {
   const totalCount = drafts.length;
   const readyCount = drafts.filter((d) => getReadiness(d) >= 75).length;
   const incompleteCount = totalCount - readyCount;
+
+  const sourceCounts = SOURCE_PAGES.reduce((acc, sp) => {
+    if (sp.key === 'ALL') {
+      acc[sp.key] = drafts.length;
+    } else {
+      acc[sp.key] = drafts.filter((d) => (d.source_page || 'products') === sp.key).length;
+    }
+    return acc;
+  }, {});
 
   return (
     <div>
@@ -394,6 +567,62 @@ export default function DraftsPage() {
         </div>
       </div>
 
+      {/* ── SOURCE PAGE QUICK FILTER PILLS ── */}
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: '8px',
+          overflowX: 'auto',
+          paddingBottom: '4px',
+          marginBottom: '14px',
+          scrollbarWidth: 'none',
+        }}
+      >
+        {SOURCE_PAGES.map((sp) => {
+          const count = sourceCounts[sp.key] || 0;
+          const isActive = filterSource === sp.key;
+          return (
+            <button
+              key={sp.key}
+              type="button"
+              onClick={() => setFilterSource(sp.key)}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '6px',
+                padding: '6px 14px',
+                borderRadius: '9999px',
+                fontSize: '12.5px',
+                fontWeight: isActive ? 700 : 600,
+                border: isActive ? '1.5px solid var(--primary)' : '1px solid var(--border)',
+                background: isActive ? 'var(--primary)' : '#ffffff',
+                color: isActive ? '#ffffff' : 'var(--text-main)',
+                cursor: 'pointer',
+                whiteSpace: 'nowrap',
+                transition: 'all 0.15s ease',
+                boxShadow: isActive ? '0 2px 8px rgba(3, 12, 84, 0.18)' : 'none',
+              }}
+            >
+              <span>{sp.icon}</span>
+              <span>{sp.label}</span>
+              <span
+                style={{
+                  fontSize: '11px',
+                  padding: '1px 6px',
+                  borderRadius: '9999px',
+                  background: isActive ? 'rgba(255,255,255,0.25)' : '#f1f5f9',
+                  color: isActive ? '#ffffff' : 'var(--text-muted)',
+                  fontWeight: 700,
+                }}
+              >
+                {count}
+              </span>
+            </button>
+          );
+        })}
+      </div>
+
       {/* ── UNIFIED FILTER & VIEW TOOLBAR ── */}
       <div className="draft-toolbar-card">
         {/* Search Pill */}
@@ -401,7 +630,7 @@ export default function DraftsPage() {
           <FiSearch size={15} style={{ color: 'var(--text-light)', flexShrink: 0 }} />
           <input
             type="text"
-            placeholder="Search drafts by name, brand, or keywords…"
+            placeholder="Search by name, page origin, brand…"
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
           />
@@ -414,6 +643,20 @@ export default function DraftsPage() {
             </span>
           )}
         </div>
+
+        {/* Source Page Select Filter */}
+        <select
+          className="draft-filter-select"
+          value={filterSource}
+          onChange={(e) => setFilterSource(e.target.value)}
+          style={{ minWidth: '150px' }}
+        >
+          {SOURCE_PAGES.map((sp) => (
+            <option key={sp.key} value={sp.key}>
+              {sp.icon} {sp.label} ({sourceCounts[sp.key] || 0})
+            </option>
+          ))}
+        </select>
 
         {/* Category Filter */}
         <select
@@ -512,10 +755,10 @@ export default function DraftsPage() {
             <table className="pro-table">
               <thead>
                 <tr>
-                  <th style={{ width: '32%' }}>Product</th>
-                  <th style={{ width: '18%' }}>Category &amp; Brand</th>
-                  <th style={{ width: '22%' }}>Readiness Status</th>
-                  <th style={{ width: '10%' }}>Tax &amp; Type</th>
+                  <th style={{ width: '32%' }}>Item Name &amp; Origin</th>
+                  <th style={{ width: '18%' }}>Category / Info</th>
+                  <th style={{ width: '18%' }}>Readiness</th>
+                  <th style={{ width: '14%' }}>Type / Attributes</th>
                   <th style={{ width: '18%', textAlign: 'right' }}>Actions</th>
                 </tr>
               </thead>
@@ -525,6 +768,7 @@ export default function DraftsPage() {
                   const isReady = score >= 75;
                   const hasImg = d.images && d.images.length > 0;
                   const isPublishing = publishingId === d.id;
+                  const sBadge = getSourceBadge(d);
 
                   return (
                     <tr key={d.id}>
@@ -557,6 +801,39 @@ export default function DraftsPage() {
                             )}
                           </div>
                           <div style={{ minWidth: 0 }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '3px' }}>
+                              <span
+                                style={{
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  gap: '4px',
+                                  padding: '1.5px 7px',
+                                  borderRadius: '4px',
+                                  fontSize: '10.5px',
+                                  fontWeight: 700,
+                                  background: sBadge.bg,
+                                  color: sBadge.color,
+                                  border: '1px solid ' + sBadge.border,
+                                }}
+                              >
+                                {sBadge.icon} {sBadge.label}
+                              </span>
+                              {d.is_deleted && (
+                                <span
+                                  style={{
+                                    fontSize: '10px',
+                                    color: '#dc2626',
+                                    fontWeight: 700,
+                                    background: '#fee2e2',
+                                    border: '1px solid #fca5a5',
+                                    padding: '1px 5px',
+                                    borderRadius: '4px',
+                                  }}
+                                >
+                                  Deleted
+                                </span>
+                              )}
+                            </div>
                             <div
                               style={{
                                 fontWeight: 700,
@@ -575,14 +852,21 @@ export default function DraftsPage() {
                               <span style={{ fontSize: '11px', color: 'var(--text-light)', fontFamily: 'monospace' }}>
                                 #{d.id}
                               </span>
-                              {d.updated_at && (
+                              {d.deleted_at ? (
+                                <>
+                                  <span style={{ fontSize: '11px', color: 'var(--text-light)' }}>•</span>
+                                  <span style={{ fontSize: '11px', color: '#dc2626', fontWeight: 600 }}>
+                                    Deleted {new Date(d.deleted_at).toLocaleDateString()}
+                                  </span>
+                                </>
+                              ) : d.updated_at ? (
                                 <>
                                   <span style={{ fontSize: '11px', color: 'var(--text-light)' }}>•</span>
                                   <span style={{ fontSize: '11px', color: 'var(--text-light)' }}>
                                     {new Date(d.updated_at).toLocaleDateString()}
                                   </span>
                                 </>
-                              )}
+                              ) : null}
                             </div>
                           </div>
                         </div>
@@ -593,10 +877,12 @@ export default function DraftsPage() {
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', alignItems: 'flex-start' }}>
                           {d.category_name ? (
                             <span className="badge badge-grey">{d.category_name}</span>
-                          ) : (
+                          ) : d.source_page === 'products' ? (
                             <span className="badge" style={{ background: '#fef3c7', color: '#b45309' }}>
                               No Category
                             </span>
+                          ) : (
+                            <span className="badge badge-grey">{d.source_label} Item</span>
                           )}
                           {d.brand_name && (
                             <span className="badge badge-brand">{d.brand_name}</span>
@@ -639,22 +925,46 @@ export default function DraftsPage() {
                         </div>
                       </td>
 
-                      {/* Tax & Diet Type */}
+                      {/* Tax & Diet Type / Attributes */}
                       <td>
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '3px' }}>
-                          <span
-                            className="badge"
-                            style={{
-                              background: d.is_veg !== false ? '#ecfdf5' : '#fef2f2',
-                              color: d.is_veg !== false ? '#15803d' : '#b91c1c',
-                              width: 'fit-content',
-                            }}
-                          >
-                            {d.is_veg !== false ? '• Veg' : '• Non-Veg'}
-                          </span>
-                          <span style={{ fontSize: '11.5px', color: 'var(--text-muted)', fontWeight: 600 }}>
-                            GST: {d.gst_percent || 0}%
-                          </span>
+                          {d.source_page === 'colors' ? (
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                              <span
+                                style={{
+                                  width: '14px',
+                                  height: '14px',
+                                  borderRadius: '50%',
+                                  background: d.original_data?.hex_code || '#030C54',
+                                  border: '1px solid #cbd5e1',
+                                  display: 'inline-block',
+                                }}
+                              />
+                              <span style={{ fontSize: '11.5px', fontWeight: 600, color: '#475569' }}>
+                                {d.original_data?.hex_code || 'Color'}
+                              </span>
+                            </div>
+                          ) : d.source_page === 'products' ? (
+                            <>
+                              <span
+                                className="badge"
+                                style={{
+                                  background: d.is_veg !== false ? '#ecfdf5' : '#fef2f2',
+                                  color: d.is_veg !== false ? '#15803d' : '#b91c1c',
+                                  width: 'fit-content',
+                                }}
+                              >
+                                {d.is_veg !== false ? '• Veg' : '• Non-Veg'}
+                              </span>
+                              <span style={{ fontSize: '11.5px', color: 'var(--text-muted)', fontWeight: 600 }}>
+                                GST: {d.gst_percent || 0}%
+                              </span>
+                            </>
+                          ) : (
+                            <span style={{ fontSize: '12px', color: 'var(--text-muted)', fontWeight: 600 }}>
+                              {d.description || (d.item_type ? d.item_type.toUpperCase() : 'Archived Item')}
+                            </span>
+                          )}
                         </div>
                       </td>
 
@@ -673,10 +983,12 @@ export default function DraftsPage() {
                               fontSize: '12px',
                               padding: '6px 12px',
                               borderRadius: '8px',
+                              background: d.is_deleted ? '#10b981' : undefined,
+                              borderColor: d.is_deleted ? '#10b981' : undefined,
                             }}
                           >
-                            <FiUploadCloud size={14} />
-                            {isPublishing ? 'Publishing…' : 'Publish'}
+                            {d.is_deleted ? <FiRefreshCw size={13} /> : <FiUploadCloud size={14} />}
+                            {isPublishing ? (d.is_deleted ? 'Restoring…' : 'Publishing…') : (d.is_deleted ? 'Restore' : 'Publish')}
                           </button>
 
                           <button
@@ -716,6 +1028,7 @@ export default function DraftsPage() {
             const hasImg = d.images && d.images.length > 0;
             const hasCat = !!d.category_id || !!d.category_name;
             const isPublishing = publishingId === d.id;
+            const sBadge = getSourceBadge(d);
 
             return (
               <div key={d.id} className="draft-card-pro">
@@ -729,13 +1042,62 @@ export default function DraftsPage() {
                     </div>
                   )}
 
-                  <span className={`draft-card-badge ${isReady ? 'ready' : 'incomplete'}`}>
-                    {isReady ? <FiCheckCircle size={12} /> : <FiAlertCircle size={12} />}
-                    {isReady ? 'Ready to Publish' : 'Draft Incomplete'}
+                  <span
+                    className={`draft-card-badge ${d.is_deleted ? 'incomplete' : isReady ? 'ready' : 'incomplete'}`}
+                    style={d.is_deleted ? { background: '#fee2e2', color: '#dc2626', borderColor: '#fca5a5' } : {}}
+                  >
+                    {d.is_deleted ? (
+                      <>
+                        <FiTrash2 size={12} /> Deleted Item
+                      </>
+                    ) : isReady ? (
+                      <>
+                        <FiCheckCircle size={12} /> Ready to Publish
+                      </>
+                    ) : (
+                      <>
+                        <FiAlertCircle size={12} /> Draft Incomplete
+                      </>
+                    )}
                   </span>
                 </div>
 
                 <div className="draft-card-content">
+                  {/* Origin page badge & deleted tag */}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '6px', flexWrap: 'wrap' }}>
+                    <span
+                      style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '4px',
+                        padding: '1.5px 7px',
+                        borderRadius: '4px',
+                        fontSize: '10.5px',
+                        fontWeight: 700,
+                        background: sBadge.bg,
+                        color: sBadge.color,
+                        border: '1px solid ' + sBadge.border,
+                      }}
+                    >
+                      {sBadge.icon} {sBadge.label}
+                    </span>
+                    {d.is_deleted && (
+                      <span
+                        style={{
+                          fontSize: '10px',
+                          color: '#dc2626',
+                          fontWeight: 700,
+                          background: '#fee2e2',
+                          border: '1px solid #fca5a5',
+                          padding: '1px 5px',
+                          borderRadius: '4px',
+                        }}
+                      >
+                        Trash / Deleted
+                      </span>
+                    )}
+                  </div>
+
                   <div className="draft-card-title" title={d.name}>
                     {d.name}
                   </div>
@@ -746,9 +1108,15 @@ export default function DraftsPage() {
                     )}
                     {d.category_name ? (
                       <span className="badge badge-grey">{d.category_name}</span>
-                    ) : (
+                    ) : d.source_page === 'products' ? (
                       <span className="badge" style={{ background: '#fef3c7', color: '#b45309' }}>
                         No Category
+                      </span>
+                    ) : null}
+                    {d.source_page === 'colors' && d.original_data?.hex_code && (
+                      <span className="badge badge-grey" style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                        <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: d.original_data.hex_code, display: 'inline-block' }} />
+                        {d.original_data.hex_code}
                       </span>
                     )}
                   </div>
@@ -792,7 +1160,7 @@ export default function DraftsPage() {
                   <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: 'auto', paddingTop: '10px' }}>
                     <button
                       type="button"
-                      className="btn btn-primary btn-sm"
+                      className={`btn btn-sm ${d.is_deleted ? 'btn-success' : 'btn-primary'}`}
                       onClick={() => handlePublish(d)}
                       disabled={isPublishing}
                       style={{
@@ -804,9 +1172,12 @@ export default function DraftsPage() {
                         fontSize: '12px',
                         padding: '7px 12px',
                       }}
+                      title={d.is_deleted ? 'Restore item back to its page' : 'Publish live'}
                     >
-                      <FiUploadCloud size={14} />
-                      {isPublishing ? 'Publishing…' : 'Publish Live'}
+                      {d.is_deleted ? <FiRefreshCw size={13} /> : <FiUploadCloud size={14} />}
+                      {isPublishing
+                        ? (d.is_deleted ? 'Restoring…' : 'Publishing…')
+                        : (d.is_deleted ? 'Restore' : 'Publish Live')}
                     </button>
 
                     <button
