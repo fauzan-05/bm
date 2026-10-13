@@ -485,17 +485,6 @@ export default function AddProductPage() {
       ? `${PROD_COL_LETTERS[activeProdCol] || 'A'}${activeProdRowIdx + 1}`
       : `${VAR_COL_LETTERS[activeVarCol] || 'A'}${activeVarRowIdx + 1}`;
 
-  const activeValue =
-    activeSheet === 'details'
-      ? activeProdCol === 'images'
-        ? `${(currentProdRow.images || []).length} images uploaded`
-        : currentProdRow[activeProdCol] || ''
-      : activeVarCol === 'images'
-      ? `${(currentVarRow.images || []).length} images uploaded`
-      : activeVarCol === 'customFields'
-      ? `${(currentVarRow.customFields || []).length} custom fields`
-      : currentVarRow[activeVarCol] || '';
-
   const mainProduct = productRows[0] || {};
   const filledVariantsCount = variantRows.filter(
     (v) =>
@@ -1180,58 +1169,58 @@ export default function AddProductPage() {
             <span>Products</span>
           </Link>
           <div className="excel-page-title-box">
-            <div className="excel-icon-box">X</div>
             <div>
               <h2 className="excel-page-title">
                 {activeSheet === 'details'
-                  ? 'Add Products — Sheet 1: Product Details.xlsx'
-                  : `Add Products — Sheet 2: Variants (${mainProduct.name || 'New Product'}).xlsx`}
+                  ? 'Add Product'
+                  : `Variants — ${mainProduct.name || 'New Product'}`}
               </h2>
               <p className="excel-page-subtitle">
                 {activeSheet === 'details'
-                  ? 'Excel Spreadsheet Mode • Fill Col A to I then click Done to add variants'
-                  : 'Excel Spreadsheet Mode • Add product variants (Unit, Size, Color, Description, Images, Custom Fields)'}
+                  ? 'Enter product details, then add variants'
+                  : 'Add unit, size, color and other variants'}
               </p>
             </div>
           </div>
         </div>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-          {/* Sheet Navigator Tabs */}
-          <div className="sheet-nav-pill">
-            <button
-              type="button"
-              className={`sheet-nav-btn ${activeSheet === 'details' ? 'active' : ''}`}
-              onClick={() => setActiveSheet('details')}
-            >
-              <FiBox size={13} />
-              <span>Sheet 1: Product Details</span>
-              {mainProduct.name && mainProduct.name.trim() && (
-                <span style={{ color: '#10b981', fontWeight: 800 }}>✓</span>
-              )}
-            </button>
-            <button
-              type="button"
-              className={`sheet-nav-btn ${activeSheet === 'variants' ? 'active' : ''}`}
-              onClick={() => {
-                if (!mainProduct.name || !mainProduct.name.trim()) {
-                  showToast('Please enter Product Name in Col B first', 'error');
-                  return;
-                }
-                setActiveSheet('variants');
-              }}
-            >
-              <FiLayers size={13} />
-              <span>Sheet 2: Variants ({filledVariantsCount})</span>
-            </button>
-          </div>
+        {/* Center: Step Navigation Tabs */}
+        <div className="sheet-nav-pill">
+          <button
+            type="button"
+            className={`sheet-nav-btn ${activeSheet === 'details' ? 'active' : ''}`}
+            onClick={() => setActiveSheet('details')}
+          >
+            <FiBox size={14} />
+            <span>1. Product Details</span>
+            {mainProduct.name && mainProduct.name.trim() && (
+              <span style={{ color: '#10b981', fontWeight: 800 }}>✓</span>
+            )}
+          </button>
+          <button
+            type="button"
+            className={`sheet-nav-btn ${activeSheet === 'variants' ? 'active' : ''}`}
+            onClick={() => {
+              if (!mainProduct.name || !mainProduct.name.trim()) {
+                showToast('Please enter Product Name in Col B first', 'error');
+                return;
+              }
+              setActiveSheet('variants');
+            }}
+          >
+            <FiLayers size={14} />
+            <span>2. Variants ({filledVariantsCount})</span>
+          </button>
+        </div>
 
+        {/* Right: Actions */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
           <button
             type="button"
             className="btn btn-outline"
             onClick={handleSaveToDrafts}
             disabled={saving}
-            style={{ fontSize: '12px', padding: '6px 12px', display: 'inline-flex', alignItems: 'center', gap: '5px' }}
+            style={{ fontSize: '12px', padding: '7px 14px', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
           >
             <FiFileText size={14} /> Save to Drafts
           </button>
@@ -1249,10 +1238,10 @@ export default function AddProductPage() {
                 display: 'inline-flex',
                 alignItems: 'center',
                 gap: '6px',
-                padding: '7px 16px',
+                padding: '7px 18px',
               }}
             >
-              <FiCheck size={16} /> Done: Add Variants ➔
+              <span>Add Variants</span> <FiCheck size={16} />
             </button>
           ) : (
             <button
@@ -1268,7 +1257,7 @@ export default function AddProductPage() {
                 display: 'inline-flex',
                 alignItems: 'center',
                 gap: '6px',
-                padding: '7px 16px',
+                padding: '7px 18px',
               }}
             >
               <FiCheck size={16} /> {saving ? 'Saving…' : 'Save Product'}
@@ -1277,192 +1266,117 @@ export default function AddProductPage() {
         </div>
       </div>
 
-      {/* ── EXCEL TOOLBAR RIBBON ── */}
-      <div className="excel-ribbon-bar">
-        {activeSheet === 'details' ? (
-          <>
-            <label
-              className="excel-ribbon-btn"
-              style={{ background: '#f0fdf4', borderColor: '#86efac', color: '#15803d', fontWeight: 700 }}
-            >
-              <FiUploadCloud size={14} />
-              <span>+ Upload Product Photos</span>
-              <input
-                type="file"
-                multiple
-                accept="image/*"
-                style={{ display: 'none' }}
-                onChange={(e) => handleUploadImages(e, 'product', activeProdRowIdx)}
-              />
-            </label>
-
-            <button
-              type="button"
-              className="excel-ribbon-btn"
-              onClick={() => {
-                if ((mainProduct.images || []).length > 0) {
-                  setMediaTarget({ type: 'product', rowIdx: activeProdRowIdx });
-                } else {
-                  showToast('Upload photos first using Col A or + Upload Product Photos', 'info');
-                }
-              }}
-            >
-              <FiImage size={13} /> View / Manage Photos ({(mainProduct.images || []).length})
-            </button>
-
-            <button
-              type="button"
-              className="excel-ribbon-btn"
-              onClick={() => {
-                setProductRows([createEmptyProductRow(1)]);
-                showToast('Sheet 1 reset', 'info');
-              }}
-            >
-              Clear Details
-            </button>
-
-            <button
-              type="button"
-              className="excel-ribbon-btn"
-              onClick={handleDoneToVariants}
-              style={{ background: '#eff6ff', borderColor: '#93c5fd', color: 'var(--accent-blue)', fontWeight: 800, marginLeft: '6px' }}
-            >
-              <FiCheck size={14} /> Done: Proceed to Sheet 2 (Variants) ➔
-            </button>
-          </>
-        ) : (
-          <>
-            <button
-              type="button"
-              className="excel-ribbon-btn"
-              onClick={() => {
-                setVariantRows((prev) => [...prev, createEmptyVariantRow(Date.now())]);
-                setActiveVarRowIdx(variantRows.length);
-                setActiveVarCol('unitId');
-                showToast(`Variant Row ${variantRows.length + 1} added`, 'info');
-              }}
-            >
-              <FiPlus style={{ color: 'var(--accent-blue)' }} /> Add Variant Row
-            </button>
-
-            <button
-              type="button"
-              className="excel-ribbon-btn"
-              onClick={() => {
-                if (!variantRows[activeVarRowIdx]) return;
-                const cloned = { ...variantRows[activeVarRowIdx], id: Date.now() };
-                setVariantRows((prev) => [...prev, cloned]);
-                setActiveVarRowIdx(variantRows.length);
-                showToast('Variant row duplicated', 'info');
-              }}
-            >
-              <FiCopy /> Duplicate Row
-            </button>
-
-            <button
-              type="button"
-              className="excel-ribbon-btn"
-              onClick={() => {
-                if (variantRows.length <= 1) {
-                  setVariantRows([createEmptyVariantRow(1)]);
-                  showToast('Row cleared', 'info');
-                  return;
-                }
-                setVariantRows((prev) => prev.filter((_, idx) => idx !== activeVarRowIdx));
-                setActiveVarRowIdx((prev) => Math.max(0, prev - 1));
-                showToast('Variant row deleted', 'info');
-              }}
-            >
-              <FiTrash2 style={{ color: '#ef4444' }} /> Delete Row
-            </button>
-
-            <button
-              type="button"
-              className="excel-ribbon-btn"
-              onClick={() => {
-                setVariantRows([createEmptyVariantRow(1), createEmptyVariantRow(2), createEmptyVariantRow(3)]);
-                setActiveVarRowIdx(0);
-                showToast('Variants worksheet cleared', 'info');
-              }}
-            >
-              Clear Sheet
-            </button>
-
-            {/* View Mode Toggle: Grid vs Cards */}
-            <div style={{ display: 'inline-flex', alignItems: 'center', background: '#e2e8f0', borderRadius: '6px', padding: '2px', marginLeft: '6px' }}>
-              <button
-                type="button"
-                className={`excel-ribbon-btn ${variantViewMode === 'grid' ? 'active' : ''}`}
-                style={{
-                  border: 'none',
-                  background: variantViewMode === 'grid' ? '#ffffff' : 'transparent',
-                  padding: '4px 10px',
-                  boxShadow: variantViewMode === 'grid' ? '0 1px 3px rgba(0,0,0,0.1)' : 'none',
-                  color: variantViewMode === 'grid' ? 'var(--primary)' : '#64748b',
-                }}
-                onClick={() => setVariantViewMode('grid')}
-              >
-                <FiGrid size={12} /> Excel Grid
-              </button>
-              <button
-                type="button"
-                className={`excel-ribbon-btn ${variantViewMode === 'cards' ? 'active' : ''}`}
-                style={{
-                  border: 'none',
-                  background: variantViewMode === 'cards' ? '#ffffff' : 'transparent',
-                  padding: '4px 10px',
-                  boxShadow: variantViewMode === 'cards' ? '0 1px 3px rgba(0,0,0,0.1)' : 'none',
-                  color: variantViewMode === 'cards' ? 'var(--primary)' : '#64748b',
-                }}
-                onClick={() => setVariantViewMode('cards')}
-              >
-                <FiFileText size={12} /> Form Cards
-              </button>
-            </div>
-
-            <button
-              type="button"
-              className="excel-ribbon-btn"
-              onClick={() => setActiveSheet('details')}
-              style={{ marginLeft: 'auto' }}
-            >
-              <FiEdit3 size={13} /> ⬅ Back to Product Details (Sheet 1)
-            </button>
-          </>
-        )}
-
-        <div className="excel-ribbon-tip">
-          <FiHelpCircle size={13} style={{ color: 'var(--accent-blue)' }} />
-          <span>Click any cell to edit • Press Tab to navigate</span>
-        </div>
-      </div>
-
-      {/* ── EXCEL FORMULA BAR (fx) ── */}
-      <div className="excel-formula-bar">
-        <span className="excel-cell-name">{activeCoord}</span>
-        <span className="excel-fx-icon">fx</span>
-        <input
-          type="text"
-          className="excel-formula-input"
-          placeholder="Cell value will show here or type to edit..."
-          value={activeValue}
-          onChange={(e) => {
-            if (activeSheet === 'details') {
-              if (activeProdCol !== 'images') {
-                updateProductCell(activeProdRowIdx, activeProdCol, e.target.value);
-              }
-            } else {
-              if (activeVarCol !== 'images' && activeVarCol !== 'customFields') {
-                updateVariantCell(activeVarRowIdx, activeVarCol, e.target.value);
-              }
-            }
+      {/* ── SHEET 1 HELPER STRIP ── */}
+      {activeSheet === 'details' && (
+        <div
+          style={{
+            padding: '7px 20px',
+            background: '#f8fafc',
+            borderBottom: '1px solid var(--border)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            fontSize: '12px',
+            color: '#64748b',
           }}
-          disabled={
-            (activeSheet === 'details' && activeProdCol === 'images') ||
-            (activeSheet === 'variants' && (activeVarCol === 'images' || activeVarCol === 'customFields'))
-          }
-        />
-      </div>
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <FiHelpCircle size={14} style={{ color: 'var(--accent-blue)' }} />
+            <span>Click any cell to edit • Press <strong>Tab</strong> to navigate columns</span>
+          </div>
+          {(mainProduct.images || []).length > 0 && (
+            <span style={{ color: '#16a34a', fontWeight: 700, fontSize: '11.5px' }}>
+              ✓ {(mainProduct.images || []).length} photo(s) selected in Col A
+            </span>
+          )}
+        </div>
+      )}
+
+      {/* ── SHEET 2 VARIANTS TOOLBAR ── */}
+      {activeSheet === 'variants' && (
+        <div className="excel-ribbon-bar">
+          <button
+            type="button"
+            className="excel-ribbon-btn"
+            onClick={() => {
+              setVariantRows((prev) => [...prev, createEmptyVariantRow(Date.now())]);
+              setActiveVarRowIdx(variantRows.length);
+              setActiveVarCol('unitId');
+              showToast(`Variant Row ${variantRows.length + 1} added`, 'info');
+            }}
+          >
+            <FiPlus style={{ color: 'var(--accent-blue)' }} /> Add Variant Row
+          </button>
+
+          <button
+            type="button"
+            className="excel-ribbon-btn"
+            onClick={() => {
+              if (!variantRows[activeVarRowIdx]) return;
+              const cloned = { ...variantRows[activeVarRowIdx], id: Date.now() };
+              setVariantRows((prev) => [...prev, cloned]);
+              setActiveVarRowIdx(variantRows.length);
+              showToast('Variant row duplicated', 'info');
+            }}
+          >
+            <FiCopy /> Duplicate Row
+          </button>
+
+          <button
+            type="button"
+            className="excel-ribbon-btn"
+            onClick={() => {
+              if (variantRows.length <= 1) {
+                setVariantRows([createEmptyVariantRow(1)]);
+                showToast('Row cleared', 'info');
+                return;
+              }
+              setVariantRows((prev) => prev.filter((_, idx) => idx !== activeVarRowIdx));
+              setActiveVarRowIdx((prev) => Math.max(0, prev - 1));
+              showToast('Variant row deleted', 'info');
+            }}
+          >
+            <FiTrash2 style={{ color: '#ef4444' }} /> Delete Row
+          </button>
+
+          {/* View Mode Toggle: Grid vs Cards */}
+          <div style={{ display: 'inline-flex', alignItems: 'center', background: '#e2e8f0', borderRadius: '6px', padding: '2px', marginLeft: '6px' }}>
+            <button
+              type="button"
+              className={`excel-ribbon-btn ${variantViewMode === 'grid' ? 'active' : ''}`}
+              style={{
+                border: 'none',
+                background: variantViewMode === 'grid' ? '#ffffff' : 'transparent',
+                padding: '4px 10px',
+                boxShadow: variantViewMode === 'grid' ? '0 1px 3px rgba(0,0,0,0.1)' : 'none',
+                color: variantViewMode === 'grid' ? 'var(--primary)' : '#64748b',
+              }}
+              onClick={() => setVariantViewMode('grid')}
+            >
+              <FiGrid size={12} /> Excel Grid
+            </button>
+            <button
+              type="button"
+              className={`excel-ribbon-btn ${variantViewMode === 'cards' ? 'active' : ''}`}
+              style={{
+                border: 'none',
+                background: variantViewMode === 'cards' ? '#ffffff' : 'transparent',
+                padding: '4px 10px',
+                boxShadow: variantViewMode === 'cards' ? '0 1px 3px rgba(0,0,0,0.1)' : 'none',
+                color: variantViewMode === 'cards' ? 'var(--primary)' : '#64748b',
+              }}
+              onClick={() => setVariantViewMode('cards')}
+            >
+              <FiFileText size={12} /> Form Cards
+            </button>
+          </div>
+
+          <div className="excel-ribbon-tip">
+            <FiHelpCircle size={13} style={{ color: 'var(--accent-blue)' }} />
+            <span>Click any cell to edit • Press Tab to navigate</span>
+          </div>
+        </div>
+      )}
 
       {/* ═══════════════════════════════════════════════════════════════════
           ── SHEET 1: PRODUCT DETAILS EXCEL SPREADSHEET ──
@@ -1733,47 +1647,6 @@ export default function AddProductPage() {
             </table>
           </div>
 
-          {/* ── DOCKED AT THE VERY BOTTOM OF THE PAGE ── */}
-          <div
-            style={{
-              padding: '12px 24px',
-              background: '#ffffff',
-              borderTop: '1px solid var(--border)',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              gap: '16px',
-              flexShrink: 0,
-              boxShadow: '0 -2px 10px rgba(0, 0, 0, 0.04)',
-            }}
-          >
-            <div>
-              <div style={{ fontWeight: 800, fontSize: '13.5px', color: 'var(--primary)' }}>
-                Step 1: Product Master Details Completed?
-              </div>
-              <div style={{ fontSize: '11.5px', color: 'var(--text-muted)' }}>
-                Click Done to proceed to Sheet 2 where you can add all variants (Unit, Size, Color, Description, Images, Custom Fields).
-              </div>
-            </div>
-            <button
-              type="button"
-              className="btn btn-primary"
-              onClick={handleDoneToVariants}
-              style={{
-                background: 'var(--accent-blue)',
-                padding: '9px 20px',
-                fontSize: '13.5px',
-                fontWeight: 800,
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: '8px',
-                boxShadow: '0 3px 10px rgba(29, 114, 254, 0.25)',
-                borderRadius: '8px',
-              }}
-            >
-              <FiCheck size={16} /> Done: Add Variants (Sheet 2) ➔
-            </button>
-          </div>
         </div>
       )}
 
@@ -1789,10 +1662,10 @@ export default function AddProductPage() {
                 <img
                   src={resolveImg(mainProduct.images[0])}
                   alt=""
-                  style={{ width: '32px', height: '32px', borderRadius: '4px', objectFit: 'cover', border: '1px solid #86efac' }}
+                  style={{ width: '28px', height: '28px', borderRadius: '4px', objectFit: 'cover', border: '1px solid #86efac' }}
                 />
               ) : (
-                <span style={{ fontSize: '18px' }}>📦</span>
+                <span style={{ fontSize: '16px' }}>📦</span>
               )}
               <span style={{ fontSize: '13px', fontWeight: 800, color: '#14532d' }}>
                 Adding Variants for: <u>{mainProduct.name || 'New Product'}</u>
@@ -1801,15 +1674,6 @@ export default function AddProductPage() {
                 • Total Variants: <strong>{variantRows.length}</strong>
               </span>
             </div>
-
-            <button
-              type="button"
-              className="btn btn-sm btn-outline"
-              onClick={() => setActiveSheet('details')}
-              style={{ background: '#ffffff', fontSize: '11.5px', padding: '4px 10px', display: 'inline-flex', alignItems: 'center', gap: '5px' }}
-            >
-              <FiEdit3 size={12} /> Edit Product Details (Sheet 1)
-            </button>
           </div>
 
           {/* ── MODE 1: EXCEL SPREADSHEET FOR VARIANTS ── */}
@@ -2307,102 +2171,21 @@ export default function AddProductPage() {
             </div>
           )}
 
-          {/* ── DOCKED AT THE VERY BOTTOM OF SHEET 2 ── */}
-          <div
-            style={{
-              padding: '12px 24px',
-              background: '#ffffff',
-              borderTop: '1px solid var(--border)',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              gap: '16px',
-              flexShrink: 0,
-              boxShadow: '0 -2px 10px rgba(0, 0, 0, 0.04)',
-            }}
-          >
-            <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
-              Step 2: Add variants for <strong>{mainProduct.name || 'product'}</strong>. Click <strong>Save Product</strong> when finished.
-            </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-              <button
-                type="button"
-                className="btn btn-outline"
-                onClick={() => setActiveSheet('details')}
-                style={{ fontSize: '12.5px', padding: '7px 14px' }}
-              >
-                ⬅ Back to Sheet 1
-              </button>
-              <button
-                type="button"
-                className="btn btn-primary"
-                onClick={handleSaveProduct}
-                disabled={saving}
-                style={{
-                  background: '#10b981',
-                  borderColor: '#10b981',
-                  padding: '8px 20px',
-                  fontSize: '13px',
-                  fontWeight: 800,
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: '6px',
-                  boxShadow: '0 3px 10px rgba(16, 185, 129, 0.25)',
-                  borderRadius: '8px',
-                }}
-              >
-                <FiCheck size={16} /> {saving ? 'Saving…' : 'Save Product'}
-              </button>
-            </div>
-          </div>
         </div>
       )}
 
-      {/* ── EXCEL BOTTOM SHEET TABS & STATUSBAR ── */}
-      <div className="excel-bottom-tabs-bar">
-        <button
-          type="button"
-          className={`excel-tab-pill-btn ${activeSheet === 'details' ? 'active' : ''}`}
-          onClick={() => setActiveSheet('details')}
-        >
-          <FiBox size={13} />
-          <span>Sheet 1: Product Details</span>
-          {mainProduct.name && mainProduct.name.trim() && (
-            <span style={{ color: '#10b981', fontWeight: 800 }}>✓</span>
-          )}
-        </button>
+      {/* ── STATUS BAR ── */}
+      <div className="excel-bottom-tabs-bar" style={{ padding: '6px 20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '14px', fontSize: '11.5px', color: '#64748b' }}>
+          <span style={{ color: '#10b981', fontWeight: 800 }}>● READY</span>
+          <span>{activeSheet === 'details' ? 'Editing: Product Master Details' : `Variants Worksheet (${variantRows.length} rows)`}</span>
+        </div>
 
-        <button
-          type="button"
-          className={`excel-tab-pill-btn ${activeSheet === 'variants' ? 'active' : ''}`}
-          onClick={() => {
-            if (!mainProduct.name || !mainProduct.name.trim()) {
-              showToast('Please enter Product Name in Sheet 1 first', 'error');
-              return;
-            }
-            setActiveSheet('variants');
-          }}
-        >
-          <FiLayers size={13} />
-          <span>Sheet 2: Variants ({filledVariantsCount})</span>
-        </button>
-
-        <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '14px', fontSize: '11px', color: '#64748b' }}>
-          {activeSheet === 'details' ? (
-            <>
-              <span style={{ color: mainProduct.name ? '#10b981' : '#f59e0b', fontWeight: 800 }}>
-                ● {mainProduct.name ? 'DETAILS ENTERED' : 'ENTER PRODUCT DETAILS'}
-              </span>
-              <span>Images: <strong>{(mainProduct.images || []).length}</strong></span>
-              <span>Active Cell: <strong>{activeCoord}</strong></span>
-            </>
-          ) : (
-            <>
-              <span style={{ color: '#10b981', fontWeight: 800 }}>● VARIANTS READY</span>
-              <span>Total Rows: <strong>{variantRows.length}</strong></span>
-              <span>Active Cell: <strong>{activeCoord}</strong></span>
-            </>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '14px', fontSize: '11px', color: '#64748b' }}>
+          {activeSheet === 'details' && (
+            <span>Photos: <strong>{(mainProduct.images || []).length}</strong></span>
           )}
+          <span>Active Cell: <strong style={{ color: 'var(--primary)' }}>{activeCoord}</strong></span>
         </div>
       </div>
 
