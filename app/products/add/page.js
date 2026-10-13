@@ -1284,11 +1284,28 @@ export default function AddProductPage() {
             <FiHelpCircle size={14} style={{ color: 'var(--accent-blue)' }} />
             <span>Click any cell to edit • Press <strong>Tab</strong> to navigate columns</span>
           </div>
-          {(mainProduct.images || []).length > 0 && (
-            <span style={{ color: '#16a34a', fontWeight: 700, fontSize: '11.5px' }}>
-              ✓ {(mainProduct.images || []).length} photo(s) selected in Col A
-            </span>
-          )}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+            {productRows.length > 1 && (
+              <button
+                type="button"
+                onClick={() => {
+                  setProductRows((prev) => prev.filter((_, idx) => idx !== activeProdRowIdx));
+                  setActiveProdRowIdx((prev) => Math.max(0, prev - 1));
+                  showToast(`Product Row ${activeProdRowIdx + 1} removed`, 'info');
+                }}
+                className="excel-row-del-btn"
+                style={{ padding: '2px 9px', fontSize: '11px' }}
+                title="Remove currently selected product row"
+              >
+                <FiTrash2 size={12} /> Remove Row #{activeProdRowIdx + 1}
+              </button>
+            )}
+            {(mainProduct.images || []).length > 0 && (
+              <span style={{ color: '#16a34a', fontWeight: 700, fontSize: '11.5px' }}>
+                ✓ {(mainProduct.images || []).length} photo(s) selected in Col A
+              </span>
+            )}
+          </div>
         </div>
       )}
 
@@ -1394,9 +1411,7 @@ export default function AddProductPage() {
                       {col.label}
                     </th>
                   ))}
-                  {productRows.length > 1 && (
-                    <th style={{ width: '60px', textAlign: 'center' }}>Action</th>
-                  )}
+                  <th style={{ width: '80px', textAlign: 'center' }}>Action</th>
                 </tr>
               </thead>
               <tbody>
@@ -1408,13 +1423,32 @@ export default function AddProductPage() {
                   return (
                     <tr key={row.id || rIdx}>
                       <td
-                        className="excel-row-num"
+                        className="excel-row-num excel-row-num-hoverable"
                         onClick={() => {
                           setActiveProdRowIdx(rIdx);
                           setActiveProdCol('name');
                         }}
+                        title={`Row ${rIdx + 1} • Click 🗑 to remove`}
                       >
-                        {rIdx + 1}
+                        <span className="excel-row-num-val">{rIdx + 1}</span>
+                        <button
+                          type="button"
+                          className="excel-row-quick-del-btn"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            if (productRows.length <= 1) {
+                              setProductRows([createEmptyProductRow(1)]);
+                              showToast('Product row cleared', 'info');
+                            } else {
+                              setProductRows((prev) => prev.filter((_, idx) => idx !== rIdx));
+                              setActiveProdRowIdx((prev) => Math.max(0, prev - 1));
+                              showToast(`Product Row ${rIdx + 1} removed`, 'info');
+                            }
+                          }}
+                          title={productRows.length > 1 ? `Remove Row ${rIdx + 1}` : 'Clear Row'}
+                        >
+                          <FiTrash2 size={12} />
+                        </button>
                       </td>
 
                       {/* Col A: Images / Photos */}
@@ -1643,23 +1677,26 @@ export default function AddProductPage() {
                           }}
                         />
                       </td>
-                      {productRows.length > 1 && (
-                        <td style={{ textAlign: 'center' }}>
-                          <button
-                            type="button"
-                            onClick={() => {
+                      <td style={{ textAlign: 'center', verticalAlign: 'middle', padding: '4px' }}>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (productRows.length <= 1) {
+                              setProductRows([createEmptyProductRow(1)]);
+                              showToast('Product row cleared', 'info');
+                            } else {
                               setProductRows((prev) => prev.filter((_, idx) => idx !== rIdx));
                               setActiveProdRowIdx((prev) => Math.max(0, prev - 1));
-                              showToast(`Product Row ${rIdx + 1} deleted`, 'info');
-                            }}
-                            className="btn btn-sm btn-outline"
-                            style={{ color: '#ef4444', border: 'none', padding: '3px 8px' }}
-                            title="Delete row"
-                          >
-                            <FiTrash2 size={13} />
-                          </button>
-                        </td>
-                      )}
+                              showToast(`Product Row ${rIdx + 1} removed`, 'info');
+                            }
+                          }}
+                          className="excel-row-del-btn"
+                          title={productRows.length > 1 ? `Remove Row ${rIdx + 1}` : 'Clear Row'}
+                        >
+                          <FiTrash2 size={12} />
+                          <span>Remove</span>
+                        </button>
+                      </td>
                     </tr>
                   );
                 })}
@@ -1709,7 +1746,7 @@ export default function AddProductPage() {
                     </button>
                   </td>
                   <td
-                    colSpan={PRODUCT_COLUMNS.length + (productRows.length > 1 ? 1 : 0)}
+                    colSpan={PRODUCT_COLUMNS.length + 1}
                     style={{
                       padding: '7px 16px',
                       background: '#ffffff',
@@ -1798,13 +1835,32 @@ export default function AddProductPage() {
                     return (
                       <tr key={vr.id || rIdx}>
                         <td
-                          className="excel-row-num"
+                          className="excel-row-num excel-row-num-hoverable"
                           onClick={() => {
                             setActiveVarRowIdx(rIdx);
                             setActiveVarCol('unitId');
                           }}
+                          title={`Row ${rIdx + 1} • Click 🗑 to remove`}
                         >
-                          {rIdx + 1}
+                          <span className="excel-row-num-val">{rIdx + 1}</span>
+                          <button
+                            type="button"
+                            className="excel-row-quick-del-btn"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              if (variantRows.length <= 1) {
+                                setVariantRows([createEmptyVariantRow(1)]);
+                                showToast('Variant row cleared', 'info');
+                              } else {
+                                setVariantRows((prev) => prev.filter((_, idx) => idx !== rIdx));
+                                setActiveVarRowIdx((prev) => Math.max(0, prev - 1));
+                                showToast(`Variant Row ${rIdx + 1} removed`, 'info');
+                              }
+                            }}
+                            title={variantRows.length > 1 ? `Remove Variant Row ${rIdx + 1}` : 'Clear Row'}
+                          >
+                            <FiTrash2 size={12} />
+                          </button>
                         </td>
 
                         {/* Col A: IMAGES */}
@@ -1968,21 +2024,24 @@ export default function AddProductPage() {
                         </td>
 
                         {/* Delete Action */}
-                        <td style={{ textAlign: 'center' }}>
+                        <td style={{ textAlign: 'center', verticalAlign: 'middle', padding: '4px' }}>
                           <button
                             type="button"
                             onClick={() => {
                               if (variantRows.length <= 1) {
                                 setVariantRows([createEmptyVariantRow(1)]);
+                                showToast('Variant row cleared', 'info');
                               } else {
                                 setVariantRows((prev) => prev.filter((_, idx) => idx !== rIdx));
+                                setActiveVarRowIdx((prev) => Math.max(0, prev - 1));
+                                showToast(`Variant Row ${rIdx + 1} removed`, 'info');
                               }
                             }}
-                            className="btn btn-sm btn-outline"
-                            style={{ color: '#ef4444', border: 'none', padding: '3px 8px' }}
-                            title="Delete row"
+                            className="excel-row-del-btn"
+                            title={variantRows.length > 1 ? `Remove Variant Row ${rIdx + 1}` : 'Clear Row'}
                           >
-                            <FiTrash2 size={13} />
+                            <FiTrash2 size={12} />
+                            <span>Remove</span>
                           </button>
                         </td>
                       </tr>

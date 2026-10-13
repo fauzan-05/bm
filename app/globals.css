@@ -2678,6 +2678,76 @@ tr:hover td {
   box-shadow: 0 2px 8px rgba(29, 114, 254, 0.35) !important;
 }
 
+/* Row Number Hover Delete */
+.excel-row-num-hoverable {
+  position: relative !important;
+  cursor: pointer;
+}
+
+.excel-row-num-val {
+  display: inline-block;
+  transition: opacity 0.12s ease;
+}
+
+.excel-row-quick-del-btn {
+  display: none;
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  background: #fee2e2;
+  border: 1px solid #fca5a5;
+  color: #dc2626;
+  border-radius: 4px;
+  width: 22px;
+  height: 22px;
+  cursor: pointer;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  transition: all 0.15s ease;
+  z-index: 5;
+}
+
+.excel-row-quick-del-btn:hover {
+  background: #dc2626;
+  color: #ffffff;
+  border-color: #dc2626;
+  transform: translate(-50%, -50%) scale(1.12);
+}
+
+.excel-row-num-hoverable:hover .excel-row-num-val {
+  opacity: 0;
+}
+
+.excel-row-num-hoverable:hover .excel-row-quick-del-btn {
+  display: inline-flex;
+}
+
+/* Action Column Delete Button */
+.excel-row-del-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  background: #fff1f2;
+  border: 1px solid #fecdd3;
+  color: #e11d48;
+  font-size: 11.5px;
+  font-weight: 700;
+  padding: 4px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.excel-row-del-btn:hover {
+  background: #e11d48;
+  color: #ffffff;
+  border-color: #e11d48;
+  box-shadow: 0 2px 6px rgba(225, 29, 72, 0.25);
+  transform: translateY(-1px);
+}
+
 /* ═══════════════════════════════════════════════════════════════════════════
    ── COMPREHENSIVE RESPONSIVE DESIGN SYSTEM (ALL DEVICES & ORIENTATIONS) ──
    ═══════════════════════════════════════════════════════════════════════════ */
