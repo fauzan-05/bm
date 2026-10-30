@@ -262,7 +262,7 @@ export default function DraftsPage() {
           name: draft.name.trim(),
           image: (draft.images && draft.images[0]) || draft.image || null,
         };
-        await api('POST', '/admin/brands', payload).catch(() => {});
+        await api('POST', '/admin/brands', payload);
         deleteDraft(draft.id);
         showToast(`Brand "${draft.name}" restored to Brands!`, 'success');
       } else if (sourcePage === 'categories') {
@@ -271,7 +271,7 @@ export default function DraftsPage() {
             title: draft.name.trim(),
             image: (draft.images && draft.images[0]) || draft.image || null,
           };
-          await api('POST', '/admin/main-categories', payload).catch(() => {});
+          await api('POST', '/admin/main-categories', payload);
         } else if (draft.item_type === 'subcategory') {
           const payload = {
             name: draft.name.trim(),
@@ -279,7 +279,7 @@ export default function DraftsPage() {
             description: draft.description || null,
             category_id: draft.category_id || draft.original_data?.category_id || null,
           };
-          await api('POST', '/admin/subcategories', payload).catch(() => {});
+          await api('POST', '/admin/subcategories', payload);
         } else {
           const payload = {
             name: draft.name.trim(),
@@ -287,7 +287,7 @@ export default function DraftsPage() {
             description: draft.description || null,
             main_category_id: draft.original_data?.main_category_id || null,
           };
-          await api('POST', '/admin/categories', payload).catch(() => {});
+          await api('POST', '/admin/categories', payload);
         }
         deleteDraft(draft.id);
         showToast(`Category "${draft.name}" restored to Categories!`, 'success');
@@ -297,7 +297,7 @@ export default function DraftsPage() {
           hex_code: draft.original_data?.hex_code || '#030C54',
           sort_order: draft.original_data?.sort_order || 0,
         };
-        await api('POST', '/admin/colors', payload).catch(() => {});
+        await api('POST', '/admin/colors', payload);
         deleteDraft(draft.id);
         showToast(`Color "${draft.name}" restored to Colors!`, 'success');
       } else if (sourcePage === 'sizes') {
@@ -305,7 +305,7 @@ export default function DraftsPage() {
           label: draft.name.trim(),
           sort_order: draft.original_data?.sort_order || 0,
         };
-        await api('POST', '/admin/sizes', payload).catch(() => {});
+        await api('POST', '/admin/sizes', payload);
         deleteDraft(draft.id);
         showToast(`Size "${draft.name}" restored to Sizes!`, 'success');
       } else if (sourcePage === 'units') {
@@ -318,7 +318,7 @@ export default function DraftsPage() {
           width_cm: od.width_cm ? parseFloat(od.width_cm) : null,
           height_cm: od.height_cm ? parseFloat(od.height_cm) : null,
         };
-        await api('POST', '/units', payload).catch(() => {});
+        await api('POST', '/units', payload);
         deleteDraft(draft.id);
         showToast(`Unit "${draft.name}" restored to Units!`, 'success');
       } else {
@@ -339,36 +339,7 @@ export default function DraftsPage() {
           default_unit_id: draft.default_unit_id ? parseInt(draft.default_unit_id) : null,
         };
 
-        let createdProdId = null;
-        try {
-          const res = await api('POST', '/admin/products', payload);
-          createdProdId = (res?.product || res)?.id;
-        } catch {}
-
-        if (typeof window !== 'undefined') {
-          try {
-            const rawLocal = localStorage.getItem('bm_local_products');
-            const localList = rawLocal ? JSON.parse(rawLocal) : [];
-            const newProd = {
-              id: createdProdId || Date.now(),
-              name: draft.name,
-              brand_id: draft.brand_id,
-              brand_name: draft.brand_name || '',
-              category_id: draft.category_id,
-              category_name: draft.category_name || '',
-              subcategory_id: draft.subcategory_id,
-              is_veg: draft.is_veg !== false,
-              gst_percent: draft.gst_percent || 0,
-              images: draft.images || [],
-              sku_id: 'BM-PROD-' + String(createdProdId || Date.now()).slice(-4),
-              description: draft.description || '',
-              created_at: new Date().toISOString(),
-              updated_at: new Date().toISOString(),
-            };
-            const remaining = localList.filter((p) => String(p.id) !== String(newProd.id));
-            localStorage.setItem('bm_local_products', JSON.stringify([newProd, ...remaining]));
-          } catch {}
-        }
+        await api('POST', '/admin/products', payload);
 
         deleteDraft(draft.id);
         showToast(`"${draft.name}" successfully published to live store!`, 'success');

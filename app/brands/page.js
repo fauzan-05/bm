@@ -4,17 +4,16 @@ import { useState, useEffect, useCallback } from 'react';
 import { api, resolveImg, uploadImages } from '@/lib/api';
 import { useAuth } from '@/context/AuthContext';
 import { useToast } from '@/context/ToastContext';
-import { mockMasterData } from '@/lib/mockData';
 import GenericModal from '@/components/GenericModal';
 import ConfirmModal from '@/components/ConfirmModal';
 import { FiPlus, FiTag, FiEdit2, FiTrash2, FiUploadCloud } from 'react-icons/fi';
 import { archiveToDrafts } from '@/lib/drafts';
 
 export default function BrandsPage() {
-  const { masterData, refreshMasterData } = useAuth();
+  const { refreshMasterData } = useAuth();
   const { showToast } = useToast();
 
-  const [brands, setBrands] = useState(masterData?.brands?.length ? masterData.brands : mockMasterData.brands);
+  const [brands, setBrands] = useState([]);
   const [loading, setLoading] = useState(false);
 
   // Modal state
@@ -30,15 +29,12 @@ export default function BrandsPage() {
   const loadBrands = useCallback(async () => {
     try {
       const data = await api('GET', '/admin/brands');
-      if (data && data.brands && data.brands.length > 0) {
-        setBrands(data.brands);
-      } else {
-        setBrands(masterData?.brands?.length ? masterData.brands : mockMasterData.brands);
-      }
-    } catch {
-      setBrands(masterData?.brands?.length ? masterData.brands : mockMasterData.brands);
+      setBrands(Array.isArray(data?.brands) ? data.brands : []);
+    } catch (err) {
+      setBrands([]);
+      showToast(err.message || 'Failed to load brands from backend', 'error');
     }
-  }, [masterData]);
+  }, [showToast]);
 
   useEffect(() => {
     loadBrands();
@@ -118,7 +114,7 @@ export default function BrandsPage() {
         image: item.image,
       });
 
-      await api('DELETE', `/admin/brands/${deleteTargetId}`).catch(() => {});
+      await api('DELETE', `/admin/brands/${deleteTargetId}`);
       showToast(`Brand "${item.name}" moved to Drafts`, 'success');
       setDeleteTargetId(null);
       refreshMasterData();

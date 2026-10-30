@@ -21,16 +21,15 @@ import {
 import GenericModal from '@/components/GenericModal';
 import ConfirmModal from '@/components/ConfirmModal';
 import ProductModal from '@/components/ProductModal';
-import { mockMasterData } from '@/lib/mockData';
 import { archiveToDrafts } from '@/lib/drafts';
 
 export default function CategoriesPage() {
-  const { masterData, refreshMasterData } = useAuth();
+  const { refreshMasterData } = useAuth();
   const { showToast } = useToast();
 
   // catStack: array of { type: 'maincat' | 'category' | 'subcat', id, name, category_id? }
   const [catStack, setCatStack] = useState([]);
-  const [items, setItems] = useState(masterData?.mainCats?.length ? masterData.mainCats : mockMasterData.mainCats);
+  const [items, setItems] = useState([]);
   const [leafProducts, setLeafProducts] = useState([]);
   const [loading, setLoading] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -63,7 +62,7 @@ export default function CategoriesPage() {
         if (data && data.main_categories && data.main_categories.length > 0) {
           setItems(data.main_categories);
         } else {
-          setItems(masterData?.mainCats?.length ? masterData.mainCats : mockMasterData.mainCats);
+          setItems([]);
         }
       } else if (currentLevel === 'maincat') {
         const mc = catStack[catStack.length - 1];
@@ -71,7 +70,7 @@ export default function CategoriesPage() {
         if (data && data.categories && data.categories.length > 0) {
           setItems(data.categories);
         } else {
-          setItems(masterData?.categories?.length ? masterData.categories : mockMasterData.categories);
+          setItems([]);
         }
       } else if (currentLevel === 'category') {
         const cat = catStack[catStack.length - 1];
@@ -79,7 +78,7 @@ export default function CategoriesPage() {
         if (data && data.subcategories && data.subcategories.length > 0) {
           setItems(data.subcategories);
         } else {
-          setItems(masterData?.subcats?.length ? masterData.subcats : mockMasterData.subcats);
+          setItems([]);
         }
       } else if (currentLevel === 'subcat') {
         const sub = catStack[catStack.length - 1];
@@ -95,17 +94,12 @@ export default function CategoriesPage() {
           setLeafProducts(prodData.products || []);
         }
       }
-    } catch {
-      // Backend offline fallback
-      if (catStack.length === 0) {
-        setItems(masterData?.mainCats?.length ? masterData.mainCats : mockMasterData.mainCats);
-      } else if (currentLevel === 'maincat') {
-        setItems(masterData?.categories?.length ? masterData.categories : mockMasterData.categories);
-      } else if (currentLevel === 'category') {
-        setItems(masterData?.subcats?.length ? masterData.subcats : mockMasterData.subcats);
-      }
+    } catch (err) {
+      setItems([]);
+      setLeafProducts([]);
+      showToast(err.message || 'Failed to load categories from backend', 'error');
     }
-  }, [catStack, currentLevel, masterData]);
+  }, [catStack, currentLevel, showToast]);
 
   useEffect(() => {
     loadCurrentLevel();
@@ -197,7 +191,7 @@ export default function CategoriesPage() {
             image: item.image,
             description: item.description,
           });
-          await api('DELETE', `/admin/main-categories/${id}`).catch(() => {});
+          await api('DELETE', `/admin/main-categories/${id}`);
           showToast(`"${item.title || item.name}" moved to Drafts`, 'success');
           setConfirmModal({ open: false });
           refreshMasterData();
@@ -270,7 +264,7 @@ export default function CategoriesPage() {
             image: item.image,
             description: item.description,
           });
-          await api('DELETE', `/admin/categories/${id}`).catch(() => {});
+          await api('DELETE', `/admin/categories/${id}`);
           showToast(`"${item.name}" moved to Drafts`, 'success');
           setConfirmModal({ open: false });
           refreshMasterData();
@@ -345,7 +339,7 @@ export default function CategoriesPage() {
             image: item.image,
             description: item.description,
           });
-          await api('DELETE', `/admin/subcategories/${id}`).catch(() => {});
+          await api('DELETE', `/admin/subcategories/${id}`);
           showToast(`"${item.name}" moved to Drafts`, 'success');
           setConfirmModal({ open: false });
           refreshMasterData();
@@ -372,7 +366,7 @@ export default function CategoriesPage() {
             item_type: 'product',
             original_data: item,
           });
-          await api('DELETE', `/admin/products/${id}`).catch(() => {});
+          await api('DELETE', `/admin/products/${id}`);
           showToast(`"${item.name}" moved to Drafts`, 'success');
           setConfirmModal({ open: false });
           loadCurrentLevel();

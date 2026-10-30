@@ -3,11 +3,10 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { api, resolveImg, downloadTemplate } from '@/lib/api';
+import { api, resolveImg, downloadTemplate, bulkDeleteProducts } from '@/lib/api';
 import { useAuth } from '@/context/AuthContext';
 import { useToast } from '@/context/ToastContext';
-import { mockProducts } from '@/lib/mockData';
-import { archiveToDrafts } from '@/lib/drafts';
+import { archiveToDrafts, archiveManyToDrafts } from '@/lib/drafts';
 import {
   FiPlus,
   FiUploadCloud,
@@ -16,10 +15,13 @@ import {
   FiEdit2,
   FiLayers,
   FiTrash2,
+  FiCheckSquare,
+  FiSquare,
 } from 'react-icons/fi';
 import ProductModal from '@/components/ProductModal';
 import VariantDetailModal from '@/components/VariantDetailModal';
 import BulkUploadModal from '@/components/BulkUploadModal';
+import BulkDeleteModal from '@/components/BulkDeleteModal';
 import ConfirmModal from '@/components/ConfirmModal';
 
 const ALPHABET = ['ALL', ...'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('')];
@@ -59,7 +61,7 @@ export default function ProductsPage() {
   const { masterData } = useAuth();
   const { showToast } = useToast();
 
-  const [products, setProducts] = useState(mockProducts);
+  const [products, setProducts] = useState([]);
   const [loading, setLoading] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
@@ -78,6 +80,12 @@ export default function ProductsPage() {
 
   const [deleteProductTarget, setDeleteProductTarget] = useState(null); // { id, name }
 
+  // Multi-selection & Bulk Delete states
+  const [selectedIds, setSelectedIds] = useState([]);
+  const [bulkDeleteModalOpen, setBulkDeleteModalOpen] = useState(false);
+  const [bulkDeleting, setBulkDeleting] = useState(false);
+  const [bulkDeleteProgress, setBulkDeleteProgress] = useState('');
+
   const searchTimerRef = useRef(null);
 
   const loadProducts = useCallback(async () => {
@@ -93,37 +101,14 @@ export default function ProductsPage() {
         path += `&sort=latest&order=desc`;
       }
 
-      let fetchedList = [];
-      let totalP = 1;
-      try {
-        const data = await api('GET', path);
-        if (data && data.products && data.products.length > 0) {
-          fetchedList = data.products;
-          totalP = data.pagination?.totalPages || 1;
-        }
-      } catch {
-        // Backend offline fallback
-      }
-
-      // Read local custom products saved in browser
-      let localList = [];
-      if (typeof window !== 'undefined') {
-        try {
-          const raw = localStorage.getItem('bm_local_products');
-          if (raw) localList = JSON.parse(raw);
-        } catch {}
-      }
-
-      // Combine local products, fetched products, and fallback mock products
-      let combined = [...localList, ...fetchedList];
-      if (combined.length === 0) {
-        combined = [...mockProducts];
-      }
+      const data = await api('GET', path);
+      const fetchedList = Array.isArray(data?.products) ? data.products : [];
+      const totalP = data?.pagination?.totalPages || 1;
 
       // Deduplicate by ID
       const seen = new Set();
       let uniqueList = [];
-      for (const item of combined) {
+      for (const item of fetchedList) {
         const key = String(item.id);
         if (!seen.has(key)) {
           seen.add(key);
@@ -158,13 +143,14 @@ export default function ProductsPage() {
 
       setProducts(uniqueList);
       setTotalPages(totalP);
-    } catch {
-      setProducts(sortLatestFirst(mockProducts));
+    } catch (err) {
+      setProducts([]);
+      showToast(err.message || 'Failed to load products from backend', 'error');
       setTotalPages(1);
     } finally {
       setLoading(false);
     }
-  }, [currentPage, selectedCategory, searchTerm, selectedLetter]);
+  }, [currentPage, selectedCategory, searchTerm, selectedLetter, showToast]);
 
   useEffect(() => {
     loadProducts();
@@ -224,24 +210,69 @@ export default function ProductsPage() {
         is_veg: deleteProductTarget.is_veg,
       });
 
-      // Remove from local cache as well
-      if (typeof window !== 'undefined') {
-        try {
-          const raw = localStorage.getItem('bm_local_products');
-          if (raw) {
-            const list = JSON.parse(raw);
-            const remaining = list.filter((p) => String(p.id) !== String(deleteProductTarget.id));
-            localStorage.setItem('bm_local_products', JSON.stringify(remaining));
-          }
-        } catch {}
-      }
-
-      await api('DELETE', `/admin/products/${deleteProductTarget.id}`).catch(() => {});
+      await api('DELETE', `/admin/products/${deleteProductTarget.id}`);
       showToast(`Product "${deleteProductTarget.name}" moved to Drafts`, 'success');
       setDeleteProductTarget(null);
       loadProducts();
     } catch (err) {
       showToast('Delete failed: ' + err.message, 'error');
+    }
+  };
+
+  // Selection handlers
+  const isAllOnPageSelected =
+    products.length > 0 && products.every((p) => selectedIds.some((id) => String(id) === String(p.id)));
+
+  const toggleSelectAll = () => {
+    if (isAllOnPageSelected) {
+      // Deselect all products currently visible on this page
+      const pageIdStrs = new Set(products.map((p) => String(p.id)));
+      setSelectedIds((prev) => prev.filter((id) => !pageIdStrs.has(String(id))));
+    } else {
+      // Select all products currently on this page
+      const merged = new Set([...selectedIds.map(String), ...products.map((p) => String(p.id))]);
+      setSelectedIds(Array.from(merged));
+    }
+  };
+
+  const toggleSelect = (id) => {
+    setSelectedIds((prev) =>
+      prev.some((x) => String(x) === String(id))
+        ? prev.filter((x) => String(x) !== String(id))
+        : [...prev, id]
+    );
+  };
+
+  const clearSelection = () => {
+    setSelectedIds([]);
+  };
+
+  const handleBulkDelete = async () => {
+    if (selectedIds.length === 0) return;
+    setBulkDeleting(true);
+    setBulkDeleteProgress(`Archiving ${selectedIds.length} products to Drafts...`);
+
+    try {
+      const selectedProducts = products.filter((p) =>
+        selectedIds.some((id) => String(id) === String(p.id))
+      );
+      archiveManyToDrafts(selectedProducts);
+
+      setBulkDeleteProgress(`Deleting ${selectedIds.length} products from catalog...`);
+      const res = await bulkDeleteProducts(selectedIds);
+
+      showToast(
+        `Successfully deleted ${res.count || selectedIds.length} products and moved to Drafts`,
+        'success'
+      );
+      setSelectedIds([]);
+      setBulkDeleteModalOpen(false);
+      loadProducts();
+    } catch (err) {
+      showToast('Bulk delete failed: ' + err.message, 'error');
+    } finally {
+      setBulkDeleting(false);
+      setBulkDeleteProgress('');
     }
   };
 
@@ -305,6 +336,98 @@ export default function ProductsPage() {
         ))}
       </div>
 
+      {/* SELECTION & BULK ACTION BAR */}
+      {!loading && products.length > 0 && (
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            flexWrap: 'wrap',
+            gap: '12px',
+            padding: '12px 18px',
+            marginBottom: '18px',
+            background: selectedIds.length > 0 ? '#eff6ff' : '#f8fafc',
+            borderRadius: '12px',
+            border: `1.5px solid ${selectedIds.length > 0 ? '#93c5fd' : '#e2e8f0'}`,
+            boxShadow: selectedIds.length > 0 ? '0 2px 8px rgba(14, 165, 233, 0.12)' : 'none',
+            transition: 'all 0.2s ease',
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
+            <label
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '8px',
+                cursor: 'pointer',
+                fontWeight: '600',
+                fontSize: '14px',
+                color: '#1e293b',
+                margin: 0,
+                userSelect: 'none',
+              }}
+            >
+              <input
+                type="checkbox"
+                checked={isAllOnPageSelected}
+                onChange={toggleSelectAll}
+                style={{ width: '18px', height: '18px', cursor: 'pointer', accentColor: '#0ea5e9' }}
+              />
+              <span>
+                {isAllOnPageSelected ? 'Deselect All on Page' : 'Select All on Page'} ({products.length})
+              </span>
+            </label>
+
+            {selectedIds.length > 0 && (
+              <span
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '4px',
+                  padding: '3px 12px',
+                  borderRadius: '16px',
+                  background: '#dbeafe',
+                  color: '#1d4ed8',
+                  fontSize: '13px',
+                  fontWeight: '700',
+                }}
+              >
+                ✓ {selectedIds.length} Selected
+              </span>
+            )}
+          </div>
+
+          {selectedIds.length > 0 && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+              <button
+                type="button"
+                className="btn btn-outline btn-sm"
+                onClick={clearSelection}
+                style={{ fontSize: '13px' }}
+              >
+                Clear Selection
+              </button>
+              <button
+                type="button"
+                className="btn btn-danger btn-sm"
+                onClick={() => setBulkDeleteModalOpen(true)}
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  fontSize: '13px',
+                  padding: '7px 16px',
+                  fontWeight: '600',
+                }}
+              >
+                <FiTrash2 /> Delete Selected ({selectedIds.length})
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+
       {/* PRODUCTS LIST */}
       {loading ? (
         <div className="loading">
@@ -324,9 +447,60 @@ export default function ProductsPage() {
           {products.map((p) => {
             const img = p.images && p.images.length > 0 ? p.images[0] : '';
             const cat = masterData.categories.find((c) => c.id === p.category_id);
+            const isSelected = selectedIds.some((id) => String(id) === String(p.id));
 
             return (
-              <div key={p.id} className="product-card">
+              <div
+                key={p.id}
+                className="product-card"
+                style={{
+                  position: 'relative',
+                  border: isSelected ? '2px solid #0ea5e9' : undefined,
+                  boxShadow: isSelected ? '0 0 0 3px rgba(14, 165, 233, 0.2)' : undefined,
+                  background: isSelected ? '#f8fafc' : undefined,
+                  transition: 'all 0.15s ease',
+                }}
+              >
+                {/* SELECT CHECKBOX ON CARD */}
+                <div
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    toggleSelect(p.id);
+                  }}
+                  style={{
+                    position: 'absolute',
+                    top: '10px',
+                    left: '10px',
+                    zIndex: 5,
+                    background: isSelected ? '#0ea5e9' : 'rgba(255, 255, 255, 0.95)',
+                    color: isSelected ? '#ffffff' : '#64748b',
+                    borderRadius: '8px',
+                    width: '30px',
+                    height: '30px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    cursor: 'pointer',
+                    boxShadow: '0 2px 6px rgba(0,0,0,0.18)',
+                    border: isSelected ? '2px solid #0284c7' : '1.5px solid #cbd5e1',
+                    transition: 'all 0.15s ease',
+                  }}
+                  title={isSelected ? 'Deselect product' : 'Select product'}
+                >
+                  <input
+                    type="checkbox"
+                    checked={isSelected}
+                    onChange={() => {}}
+                    style={{
+                      width: '16px',
+                      height: '16px',
+                      cursor: 'pointer',
+                      accentColor: '#0ea5e9',
+                      pointerEvents: 'none',
+                    }}
+                  />
+                </div>
+
                 <div className="product-card-img">
                   {img ? (
                     <img src={resolveImg(img)} alt={p.name} />
@@ -425,6 +599,18 @@ export default function ProductsPage() {
         message="Delete this product? This will also remove it from all shops."
         onConfirm={handleDeleteProduct}
         onCancel={() => setDeleteProductTarget(null)}
+      />
+
+      {/* BULK DELETE CONFIRMATION MODAL */}
+      <BulkDeleteModal
+        isOpen={bulkDeleteModalOpen}
+        selectedItems={products.filter((p) =>
+          selectedIds.some((id) => String(id) === String(p.id))
+        )}
+        onClose={() => !bulkDeleting && setBulkDeleteModalOpen(false)}
+        onConfirm={handleBulkDelete}
+        loading={bulkDeleting}
+        progressText={bulkDeleteProgress}
       />
     </div>
   );

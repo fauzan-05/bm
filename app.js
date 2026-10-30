@@ -69,7 +69,7 @@ async function handleLogin() {
       document.getElementById('otpSection').classList.remove('hidden');
       btn.textContent = 'Verify OTP';
       btn.disabled = false;
-      showToast('OTP sent (demo: 1234)');
+      showToast('OTP sent');
     } else {
       if (!otp) { showLoginError('Enter OTP'); btn.disabled = false; btn.textContent = 'Verify OTP'; return; }
       const data = await api('POST', '/auth/admin-login', { phone, otp });

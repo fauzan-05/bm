@@ -4,17 +4,16 @@ import { useState, useEffect, useCallback } from 'react';
 import { api } from '@/lib/api';
 import { useAuth } from '@/context/AuthContext';
 import { useToast } from '@/context/ToastContext';
-import { mockMasterData } from '@/lib/mockData';
 import GenericModal from '@/components/GenericModal';
 import ConfirmModal from '@/components/ConfirmModal';
 import { FiPlus, FiLayers, FiEdit2, FiTrash2 } from 'react-icons/fi';
 import { archiveToDrafts } from '@/lib/drafts';
 
 export default function UnitsPage() {
-  const { masterData, refreshMasterData } = useAuth();
+  const { refreshMasterData } = useAuth();
   const { showToast } = useToast();
 
-  const [units, setUnits] = useState(masterData?.units?.length ? masterData.units : mockMasterData.units);
+  const [units, setUnits] = useState([]);
   const [loading, setLoading] = useState(false);
 
   // Modal
@@ -34,16 +33,12 @@ export default function UnitsPage() {
   const loadUnits = useCallback(async () => {
     try {
       const data = await api('GET', '/units');
-      if (data && data.units && data.units.length > 0) {
-        setUnits(data.units);
-      } else {
-        setUnits(masterData?.units?.length ? masterData.units : mockMasterData.units);
-      }
-    } catch {
-      // Backend offline fallback
-      setUnits(masterData?.units?.length ? masterData.units : mockMasterData.units);
+      setUnits(Array.isArray(data?.units) ? data.units : []);
+    } catch (err) {
+      setUnits([]);
+      showToast(err.message || 'Failed to load units from backend', 'error');
     }
-  }, [masterData]);
+  }, [showToast]);
 
   useEffect(() => {
     loadUnits();
@@ -119,7 +114,7 @@ export default function UnitsPage() {
         description: `Weight: ${item.weight_kg ?? 0}kg • Dimensions: ${item.length_cm ?? '-'}x${item.width_cm ?? '-'}x${item.height_cm ?? '-'}cm`,
       });
 
-      await api('DELETE', `/units/${deactivateId}`).catch(() => {});
+      await api('DELETE', `/units/${deactivateId}`);
       showToast(`Unit "${item.number} ${item.unit_type || ''}" moved to Drafts`, 'success');
       setDeactivateId(null);
       refreshMasterData();

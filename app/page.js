@@ -5,7 +5,6 @@ import Link from 'next/link';
 import { api, resolveImg } from '@/lib/api';
 import { useAuth } from '@/context/AuthContext';
 import { useToast } from '@/context/ToastContext';
-import { mockProducts, mockDashboardMetrics, mockMasterData } from '@/lib/mockData';
 import {
   FiPlus,
   FiBox,
@@ -22,9 +21,9 @@ export default function OverviewDashboardPage() {
   const { user, masterData } = useAuth();
   const { showToast } = useToast();
 
-  const [products, setProducts] = useState(mockProducts);
-  const [totalProducts, setTotalProducts] = useState(mockDashboardMetrics.totalProducts);
-  const [loading, setLoading] = useState(false);
+  const [products, setProducts] = useState([]);
+  const [totalProducts, setTotalProducts] = useState(0);
+  const [loading, setLoading] = useState(true);
 
   // Modals state
   const [productModalOpen, setProductModalOpen] = useState(false);
@@ -37,19 +36,17 @@ export default function OverviewDashboardPage() {
   const loadDashboardData = useCallback(async () => {
     try {
       const data = await api('GET', '/admin/products?page=1&limit=6');
-      if (data && data.products && data.products.length > 0) {
-        setProducts(data.products);
-        setTotalProducts(data.pagination?.total || data.products.length);
-      } else {
-        setProducts(mockProducts);
-        setTotalProducts(mockDashboardMetrics.totalProducts);
-      }
-    } catch {
-      // Backend offline: gracefully keep rich mock data without errors
-      setProducts(mockProducts);
-      setTotalProducts(mockDashboardMetrics.totalProducts);
+      const rows = Array.isArray(data?.products) ? data.products : [];
+      setProducts(rows);
+      setTotalProducts(data?.pagination?.total ?? rows.length);
+    } catch (err) {
+      setProducts([]);
+      setTotalProducts(0);
+      showToast(err.message || 'Failed to load dashboard data from backend', 'error');
+    } finally {
+      setLoading(false);
     }
-  }, []);
+  }, [showToast]);
 
   useEffect(() => {
     loadDashboardData();
@@ -77,7 +74,7 @@ export default function OverviewDashboardPage() {
             {greeting}, {adminName} !
           </h1>
           <p>
-            {todayFormatted} &nbsp;•&nbsp; Catalog active &amp; in sync
+            {todayFormatted} &nbsp;•&nbsp; Catalog overview from backend
           </p>
         </div>
 
@@ -104,21 +101,13 @@ export default function OverviewDashboardPage() {
               </span>
               <span>Total Products</span>
             </div>
-            <span className="metric-pill normal">Normal</span>
           </div>
           <div className="metric-card-body">
             <div className="metric-card-value-wrap">
               <div className="metric-card-value">
-                {totalProducts || products.length}
+                {totalProducts}
                 <span className="metric-card-unit">items</span>
               </div>
-              <div className="metric-card-trend">
-                <span style={{ display: 'inline-flex', alignItems: 'center', gap: '2px' }}>
-                  <FiArrowUpRight /> 12
-                </span>{' '}
-                new
-              </div>
-              <div className="metric-card-subtext">Synced 2 min ago</div>
             </div>
           </div>
         </div>
@@ -132,7 +121,6 @@ export default function OverviewDashboardPage() {
               </span>
               <span>Categories</span>
             </div>
-            <span className="metric-pill normal">Organized</span>
           </div>
           <div className="metric-card-body">
             <div className="metric-card-value-wrap">
@@ -156,7 +144,6 @@ export default function OverviewDashboardPage() {
               </span>
               <span>Registered Brands</span>
             </div>
-            <span className="metric-pill warning">Verified</span>
           </div>
           <div className="metric-card-body">
             <div className="metric-card-value-wrap">
@@ -165,7 +152,7 @@ export default function OverviewDashboardPage() {
                 <span className="metric-card-unit">brands</span>
               </div>
               <div className="metric-card-subtext" style={{ marginTop: '6px' }}>
-                Active catalog suppliers
+                From backend catalog
               </div>
             </div>
           </div>
@@ -180,7 +167,6 @@ export default function OverviewDashboardPage() {
               </span>
               <span>Units &amp; Sizes</span>
             </div>
-            <span className="metric-pill ontrack">On Track</span>
           </div>
           <div className="metric-card-body">
             <div className="metric-card-value-wrap">
@@ -255,7 +241,7 @@ export default function OverviewDashboardPage() {
                       </div>
                       <div className="appointment-date">
                         <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
-                          <FiTag /> SKU: {p.sku_id || 'BM-PROD-0000'}
+                          <FiTag /> SKU: {p.sku_id || '—'}
                         </span>
                       </div>
                     </div>
@@ -305,9 +291,7 @@ export default function OverviewDashboardPage() {
                 <span className="report-item-title">{mc.title}</span>
                 {mc.three_shop_restriction ? (
                   <span className="badge badge-brand">3-Shop Restriction</span>
-                ) : (
-                  <span className="badge badge-green">Active</span>
-                )}
+                ) : null}
               </div>
             ))}
             {masterData.mainCats.length === 0 && (
@@ -322,47 +306,10 @@ export default function OverviewDashboardPage() {
         <div className="dash-card">
           <div className="dash-card-header">
             <h2 className="dash-card-title">Catalog Notifications</h2>
-            <span className="badge badge-brand" style={{ fontSize: '10px' }}>
-              Live
-            </span>
           </div>
-          <div>
-            <div className="report-item">
-              <div>
-                <div className="report-item-title" style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
-                  <FiBox /> New Product Added
-                </div>
-                <div style={{ fontSize: '11px', color: 'var(--text-light)' }}>
-                  Basmati Rice &amp; 3 variants
-                </div>
-              </div>
-              <span style={{ fontSize: '11px', color: 'var(--text-light)' }}>10m ago</span>
-            </div>
-
-            <div className="report-item">
-              <div>
-                <div className="report-item-title" style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
-                  <FiTag /> Brand Partner Synced
-                </div>
-                <div style={{ fontSize: '11px', color: 'var(--text-light)' }}>
-                  Tata Consumer Products
-                </div>
-              </div>
-              <span style={{ fontSize: '11px', color: 'var(--text-light)' }}>2h ago</span>
-            </div>
-
-            <div className="report-item">
-              <div>
-                <div className="report-item-title" style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
-                  <FiLayers /> New Measurement Unit
-                </div>
-                <div style={{ fontSize: '11px', color: 'var(--text-light)' }}>
-                  Kilogram (1 kg)
-                </div>
-              </div>
-              <span style={{ fontSize: '11px', color: 'var(--text-light)' }}>Yesterday</span>
-            </div>
-          </div>
+          <p style={{ color: 'var(--text-light)', fontSize: '12px' }}>
+            Recent activity is not available from the backend.
+          </p>
         </div>
 
         {/* Widget 3: Inventory Units Checklist (matching Today's Medicine) */}
@@ -371,7 +318,7 @@ export default function OverviewDashboardPage() {
             <div>
               <h2 className="dash-card-title">Measurement Units</h2>
               <p style={{ fontSize: '11px', color: 'var(--text-light)', marginTop: '2px' }}>
-                Active inventory units
+                Inventory units from backend
               </p>
             </div>
             <Link href="/units" className="dash-card-link">
@@ -391,7 +338,11 @@ export default function OverviewDashboardPage() {
                     Type: {u.unit_type} • {u.weight_kg ? `${u.weight_kg} kg` : 'Standard'}
                   </div>
                 </div>
-                <span className="badge badge-grey">Active</span>
+                {u.is_active !== undefined && (
+                  <span className={`badge ${u.is_active ? 'badge-green' : 'badge-grey'}`}>
+                    {u.is_active ? 'Active' : 'Inactive'}
+                  </span>
+                )}
               </div>
             ))}
             {masterData.units.length === 0 && (

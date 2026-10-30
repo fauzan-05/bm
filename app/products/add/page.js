@@ -7,7 +7,6 @@ import { api, uploadImages, resolveImg } from '@/lib/api';
 import { useAuth } from '@/context/AuthContext';
 import { useToast } from '@/context/ToastContext';
 import { saveDraft } from '@/lib/drafts';
-import { mockProducts } from '@/lib/mockData';
 import {
   FiArrowLeft,
   FiPlus,
@@ -365,7 +364,7 @@ function AddProductPageContent() {
             const adminRes = await api('GET', `/admin/products/${editId}`);
             p = adminRes.product || adminRes;
           } catch {
-            p = mockProducts.find((item) => String(item.id) === String(editId)) || null;
+            throw new Error('Unable to load this product from the backend');
           }
         }
 
@@ -735,7 +734,7 @@ function AddProductPageContent() {
           try {
             await api('PUT', `/admin/products/${editId}`, payload);
           } catch {
-            await api('PUT', `/products/${editId}`, payload).catch(() => {});
+            await api('PUT', `/products/${editId}`, payload);
           }
         } else {
           const res = await api('POST', '/admin/products', payload);
@@ -762,10 +761,10 @@ function AddProductPageContent() {
               try {
                 await api('PUT', `/admin/products/${createdTargetId}/variants/${vr.id}`, vPayload);
               } catch {
-                await api('POST', `/admin/products/${createdTargetId}/variants`, vPayload).catch(() => {});
+                await api('POST', `/admin/products/${createdTargetId}/variants`, vPayload);
               }
             } else {
-              await api('POST', `/admin/products/${createdTargetId}/variants`, vPayload).catch(() => {});
+              await api('POST', `/admin/products/${createdTargetId}/variants`, vPayload);
             }
           }
 
@@ -786,69 +785,17 @@ function AddProductPageContent() {
             await api('PUT', `/admin/products/${createdTargetId}/attributes`, {
               size_ids: matchedSizes.map((s) => s.id),
               color_ids: matchedColors.map((c) => c.id),
-            }).catch(() => {});
+            });
           }
 
           if (assignedUnitIds.length) {
             await api('PUT', `/units/assigned/${createdTargetId}`, {
               unit_ids: assignedUnitIds,
-            }).catch(() => {});
+            });
           }
         }
-      } catch {
-        // Offline / mock catalog fallback
-        const selectedBrand = masterData.brands.find(
-          (b) => String(b.id) === String(mainProd.brandId)
-        );
-        const selectedCat = masterData.categories.find(
-          (c) => String(c.id) === String(mainProd.categoryId)
-        );
-
-        saveDraft({
-          ...payload,
-          brand_name: selectedBrand?.name || null,
-          category_name: selectedCat?.name || null,
-          variants: validVariants,
-          status: 'draft',
-        });
-      }
-
-      // Cache product locally with current timestamp for immediate top placement in /products
-      if (typeof window !== 'undefined') {
-        try {
-          const rawLocal = localStorage.getItem('bm_local_products');
-          const localList = rawLocal ? JSON.parse(rawLocal) : [];
-          const selectedBrand = masterData.brands.find(
-            (b) => String(b.id) === String(mainProd.brandId)
-          );
-          const selectedCat = masterData.categories.find(
-            (c) => String(c.id) === String(mainProd.categoryId)
-          );
-
-          const newProdId = createdTargetId || (editId ? Number(editId) : Date.now());
-          const savedItem = {
-            id: newProdId,
-            name: mainProd.name.trim(),
-            brand_id: mainProd.brandId ? parseInt(mainProd.brandId) : null,
-            brand_name: selectedBrand?.name || '',
-            category_id: mainProd.categoryId ? parseInt(mainProd.categoryId) : null,
-            category_name: selectedCat?.name || '',
-            subcategory_id: mainProd.subcategoryId ? parseInt(mainProd.subcategoryId) : null,
-            is_veg: mainProd.isVeg === 'true',
-            gst_percent: parseFloat(mainProd.gstPercent) || 0,
-            images: mainProd.images || [],
-            sku_id: 'BM-PROD-' + String(newProdId).slice(-4),
-            description: mainProd.description || '',
-            variants: validVariants,
-            created_at: new Date().toISOString(),
-            updated_at: new Date().toISOString(),
-          };
-
-          const remaining = localList.filter((item) => String(item.id) !== String(savedItem.id));
-          localStorage.setItem('bm_local_products', JSON.stringify([savedItem, ...remaining]));
-        } catch (e) {
-          console.warn('Failed to cache saved product locally:', e);
-        }
+      } catch (err) {
+        throw err;
       }
 
       showToast(

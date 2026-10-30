@@ -4,17 +4,16 @@ import { useState, useEffect, useCallback } from 'react';
 import { api } from '@/lib/api';
 import { useAuth } from '@/context/AuthContext';
 import { useToast } from '@/context/ToastContext';
-import { mockMasterData } from '@/lib/mockData';
 import GenericModal from '@/components/GenericModal';
 import ConfirmModal from '@/components/ConfirmModal';
 import { FiPlus, FiMaximize2, FiEdit2, FiTrash2 } from 'react-icons/fi';
 import { archiveToDrafts } from '@/lib/drafts';
 
 export default function SizesPage() {
-  const { masterData, refreshMasterData } = useAuth();
+  const { refreshMasterData } = useAuth();
   const { showToast } = useToast();
 
-  const [sizes, setSizes] = useState(masterData?.sizes?.length ? masterData.sizes : mockMasterData.sizes);
+  const [sizes, setSizes] = useState([]);
   const [loading, setLoading] = useState(false);
 
   // Modal
@@ -30,15 +29,12 @@ export default function SizesPage() {
   const loadSizes = useCallback(async () => {
     try {
       const data = await api('GET', '/admin/sizes');
-      if (data && data.sizes && data.sizes.length > 0) {
-        setSizes(data.sizes);
-      } else {
-        setSizes(masterData?.sizes?.length ? masterData.sizes : mockMasterData.sizes);
-      }
-    } catch {
-      setSizes(masterData?.sizes?.length ? masterData.sizes : mockMasterData.sizes);
+      setSizes(Array.isArray(data?.sizes) ? data.sizes : []);
+    } catch (err) {
+      setSizes([]);
+      showToast(err.message || 'Failed to load sizes from backend', 'error');
     }
-  }, [masterData]);
+  }, [showToast]);
 
   useEffect(() => {
     loadSizes();
@@ -102,7 +98,7 @@ export default function SizesPage() {
         description: `Sort Order: ${item.sort_order ?? 0}`,
       });
 
-      await api('DELETE', `/admin/sizes/${deleteTargetId}`).catch(() => {});
+      await api('DELETE', `/admin/sizes/${deleteTargetId}`);
       showToast(`Size "${item.label}" moved to Drafts`, 'success');
       setDeleteTargetId(null);
       refreshMasterData();

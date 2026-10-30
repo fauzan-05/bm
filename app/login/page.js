@@ -29,13 +29,9 @@ export default function LoginPage() {
 
     try {
       if (!otpSent) {
-        try {
-          await api('POST', '/auth/admin-login', { phone: cleanPhone });
-        } catch {
-          // Backend offline - proceed with demo OTP seamlessly
-        }
+        await api('POST', '/auth/admin-login', { phone: cleanPhone });
         setOtpSent(true);
-        showToast('OTP sent (demo: 1234)', 'success');
+        showToast('OTP sent', 'success');
       } else {
         const cleanOtp = otp.trim();
         if (!cleanOtp) {
@@ -44,26 +40,11 @@ export default function LoginPage() {
           return;
         }
 
-        let authToken = 'demo-admin-token';
-        let authUser = {
-          name: 'Admin',
-          phone: cleanPhone,
-          email: 'admin@bettermend.in',
-          role: 'Super Admin',
-        };
-
-        try {
-          const data = await api('POST', '/auth/admin-login', { phone: cleanPhone, otp: cleanOtp });
-          if (data && data.token) {
-            authToken = data.token;
-            authUser = data.user || authUser;
-          }
-        } catch {
-          // Backend offline - use demo credentials
-        }
+        const data = await api('POST', '/auth/admin-login', { phone: cleanPhone, otp: cleanOtp });
+        if (!data?.token) throw new Error('Backend did not return an authentication token');
 
         showToast('Logged in successfully', 'success');
-        login(authToken, authUser);
+        login(data.token, data.user || null);
       }
     } catch (err) {
       setError(err.message || 'Authentication failed');
@@ -114,7 +95,7 @@ export default function LoginPage() {
               <label>OTP</label>
               <input
                 type="text"
-                placeholder="Enter OTP (demo: 1234)"
+                placeholder="Enter OTP"
                 maxLength={6}
                 value={otp}
                 onChange={(e) => setOtp(e.target.value)}

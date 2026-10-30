@@ -392,7 +392,7 @@ export default function ProductModal({ isOpen, productId, onClose, onSuccess }) 
           default_unit_id: defaultUnitId ? parseInt(defaultUnitId) : null,
         };
 
-        await api('PUT', `/admin/products/${productId}`, payload).catch(() => {});
+        await api('PUT', `/admin/products/${productId}`, payload);
         showToast('Product updated successfully', 'success');
 
         onClose();

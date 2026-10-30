@@ -4,17 +4,16 @@ import { useState, useEffect, useCallback } from 'react';
 import { api } from '@/lib/api';
 import { useAuth } from '@/context/AuthContext';
 import { useToast } from '@/context/ToastContext';
-import { mockMasterData } from '@/lib/mockData';
 import GenericModal from '@/components/GenericModal';
 import ConfirmModal from '@/components/ConfirmModal';
 import { FiPlus, FiDroplet, FiEdit2, FiTrash2 } from 'react-icons/fi';
 import { archiveToDrafts } from '@/lib/drafts';
 
 export default function ColorsPage() {
-  const { masterData, refreshMasterData } = useAuth();
+  const { refreshMasterData } = useAuth();
   const { showToast } = useToast();
 
-  const [colors, setColors] = useState(masterData?.colors?.length ? masterData.colors : mockMasterData.colors);
+  const [colors, setColors] = useState([]);
   const [loading, setLoading] = useState(false);
 
   // Modal
@@ -31,15 +30,12 @@ export default function ColorsPage() {
   const loadColors = useCallback(async () => {
     try {
       const data = await api('GET', '/admin/colors');
-      if (data && data.colors && data.colors.length > 0) {
-        setColors(data.colors);
-      } else {
-        setColors(masterData?.colors?.length ? masterData.colors : mockMasterData.colors);
-      }
-    } catch {
-      setColors(masterData?.colors?.length ? masterData.colors : mockMasterData.colors);
+      setColors(Array.isArray(data?.colors) ? data.colors : []);
+    } catch (err) {
+      setColors([]);
+      showToast(err.message || 'Failed to load colors from backend', 'error');
     }
-  }, [masterData]);
+  }, [showToast]);
 
   useEffect(() => {
     loadColors();
@@ -106,7 +102,7 @@ export default function ColorsPage() {
         description: `Hex: ${item.hex_code || 'N/A'} • Sort: ${item.sort_order ?? 0}`,
       });
 
-      await api('DELETE', `/admin/colors/${deleteTargetId}`).catch(() => {});
+      await api('DELETE', `/admin/colors/${deleteTargetId}`);
       showToast(`Color "${item.label}" moved to Drafts`, 'success');
       setDeleteTargetId(null);
       refreshMasterData();

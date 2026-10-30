@@ -11,14 +11,7 @@ import {
   removeStoredUser,
   api,
 } from '@/lib/api';
-import { mockMasterData } from '@/lib/mockData';
-
-const DEFAULT_ADMIN = {
-  name: 'Admin',
-  email: 'admin@bettermend.in',
-  phone: '9876543210',
-  role: 'Super Admin',
-};
+const EMPTY_MASTER_DATA = { categories: [], brands: [], units: [], sizes: [], colors: [], mainCats: [], subcats: [] };
 
 const AuthContext = createContext({
   user: null,
@@ -27,7 +20,7 @@ const AuthContext = createContext({
   isLoggedIn: false,
   login: () => {},
   logout: () => {},
-  masterData: mockMasterData,
+  masterData: EMPTY_MASTER_DATA,
   refreshMasterData: async () => {},
 });
 
@@ -35,15 +28,15 @@ export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
   const [token, setTokenState] = useState('');
   const [loading, setLoading] = useState(true);
-  const [masterData, setMasterData] = useState(mockMasterData);
+  const [masterData, setMasterData] = useState(EMPTY_MASTER_DATA);
 
   const router = useRouter();
   const pathname = usePathname();
 
   const refreshMasterData = useCallback(async () => {
     const currentToken = getToken();
-    if (!currentToken || currentToken === 'demo-admin-token') {
-      setMasterData(mockMasterData);
+    if (!currentToken) {
+      setMasterData(EMPTY_MASTER_DATA);
       return;
     }
 
@@ -85,18 +78,10 @@ export function AuthProvider({ children }) {
         });
       }
 
-      setMasterData({
-        categories: categories.length ? categories : mockMasterData.categories,
-        brands: brands.length ? brands : mockMasterData.brands,
-        units: units.length ? units : mockMasterData.units,
-        sizes: sizes.length ? sizes : mockMasterData.sizes,
-        colors: colors.length ? colors : mockMasterData.colors,
-        mainCats: mainCats.length ? mainCats : mockMasterData.mainCats,
-        subcats: subcats.length ? subcats : mockMasterData.subcats,
-      });
+      setMasterData({ categories, brands, units, sizes, colors, mainCats, subcats });
     } catch (e) {
-      console.warn('Backend unavailable, using local mock data:', e);
-      setMasterData(mockMasterData);
+      console.error('Failed to load master data from backend:', e);
+      setMasterData(EMPTY_MASTER_DATA);
     }
   }, []);
 
@@ -104,11 +89,13 @@ export function AuthProvider({ children }) {
     let savedToken = getToken();
     let savedUser = getStoredUser();
 
-    if (!savedToken) {
-      savedToken = 'demo-admin-token';
-      savedUser = DEFAULT_ADMIN;
-      setToken(savedToken);
-      setStoredUser(savedUser);
+    // Remove the demo token persisted by older builds so the user must
+    // authenticate against the backend with a real token.
+    if (savedToken === 'demo-admin-token') {
+      removeToken();
+      removeStoredUser();
+      savedToken = '';
+      savedUser = null;
     }
 
     setTokenState(savedToken);
@@ -141,7 +128,7 @@ export function AuthProvider({ children }) {
     removeStoredUser();
     setTokenState('');
     setUser(null);
-    setMasterData(mockMasterData);
+    setMasterData(EMPTY_MASTER_DATA);
     router.push('/login');
   };
 
