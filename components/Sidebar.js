@@ -17,11 +17,13 @@ import {
   FiLogOut,
   FiX,
   FiUploadCloud,
+  FiPackage,
 } from 'react-icons/fi';
 
 const NAV_ITEMS = [
   { href: '/', label: 'Dashboard', icon: FiGrid },
   { href: '/products', label: 'Products', icon: FiBox },
+  { href: '/stock-management', label: 'Stock Management', icon: FiPackage },
   { href: '/bulk-upload', label: 'Bulk Upload', icon: FiUploadCloud },
   { href: '/categories', label: 'Categories', icon: FiFolder },
   { href: '/brands', label: 'Brands', icon: FiTag },

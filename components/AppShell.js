@@ -9,6 +9,7 @@ import { useAuth } from '@/context/AuthContext';
 const TITLES = {
   '/': 'Dashboard',
   '/products': 'Products',
+  '/stock-management': 'Stock Management',
   '/bulk-upload': 'Bulk Upload Products',
   '/categories': 'Categories',
   '/brands': 'Brands',

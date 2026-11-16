@@ -230,7 +230,7 @@ export default function BulkUploadPage() {
             <FiDownload /> Master Catalog Template
           </button>
           <a
-            href="http://localhost:2456/stock-sync/vendor_stock_sync_sample_template.xlsx"
+            href={`${BASE}/admin/vendor-stock-template`}
             download="vendor_stock_sync_sample_template.xlsx"
             className="btn btn-outline"
             style={{ display: 'inline-flex', alignItems: 'center', gap: '8px' }}
