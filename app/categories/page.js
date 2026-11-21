@@ -17,6 +17,7 @@ import {
   FiFolder,
   FiBox,
   FiUpload,
+  FiEyeOff,
 } from 'react-icons/fi';
 import GenericModal from '@/components/GenericModal';
 import ConfirmModal from '@/components/ConfirmModal';
@@ -39,6 +40,7 @@ export default function CategoriesPage() {
   const [catModal, setCatModal] = useState({ open: false, item: null, mainCatId: null });
   const [subcatModal, setSubcatModal] = useState({ open: false, item: null, categoryId: null, parentId: null });
   const [confirmModal, setConfirmModal] = useState({ open: false, message: '', onConfirm: null });
+  const [togglingId, setTogglingId] = useState(null);
 
   // Product modal (for leaf subcategory)
   const [productModalOpen, setProductModalOpen] = useState(false);
@@ -74,7 +76,7 @@ export default function CategoriesPage() {
         }
       } else if (currentLevel === 'category') {
         const cat = catStack[catStack.length - 1];
-        const data = await api('GET', `/categories/${cat.id}/subcategories`);
+        const data = await api('GET', `/categories/${cat.id}/subcategories?all=true`);
         if (data && data.subcategories && data.subcategories.length > 0) {
           setItems(data.subcategories);
         } else {
@@ -83,7 +85,7 @@ export default function CategoriesPage() {
       } else if (currentLevel === 'subcat') {
         const sub = catStack[catStack.length - 1];
         const catId = sub.category_id || catStack.find((s) => s.type === 'category')?.id;
-        const childData = await api('GET', `/categories/${catId}/subcategories?parent_id=${sub.id}`);
+        const childData = await api('GET', `/categories/${catId}/subcategories?parent_id=${sub.id}&all=true`);
         const children = childData.subcategories || [];
 
         if (children.length > 0) {
@@ -274,6 +276,43 @@ export default function CategoriesPage() {
         }
       },
     });
+  };
+
+  // ── TOGGLE ACTIVE / INACTIVE STATUS (HIDE / SHOW IN USER APP) ──
+  const toggleItemActive = async (item, e) => {
+    if (e && e.stopPropagation) e.stopPropagation();
+    const currentActive = item.is_active !== false;
+    const newActive = !currentActive;
+    const name = item.title || item.name;
+
+    setTogglingId(item.id);
+    // Optimistic UI update
+    setItems((prev) =>
+      prev.map((i) => (i.id === item.id ? { ...i, is_active: newActive } : i))
+    );
+
+    try {
+      if (catStack.length === 0) {
+        await api('PUT', `/admin/main-categories/${item.id}/toggle-status`);
+      } else if (currentLevel === 'maincat') {
+        await api('PUT', `/admin/categories/${item.id}/toggle-status`);
+      } else {
+        await api('PUT', `/admin/subcategories/${item.id}/toggle-status`);
+      }
+      showToast(
+        `"${name}" is now ${newActive ? 'Active (Visible in App)' : 'Hidden (Hidden from App)'}`,
+        'success'
+      );
+      refreshMasterData();
+    } catch (err) {
+      // Revert on error
+      setItems((prev) =>
+        prev.map((i) => (i.id === item.id ? { ...i, is_active: currentActive } : i))
+      );
+      showToast(err.message || 'Failed to update category status', 'error');
+    } finally {
+      setTogglingId(null);
+    }
   };
 
   // ── SUBCATEGORY ACTIONS ──

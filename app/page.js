@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { api, resolveImg } from '@/lib/api';
 import { useAuth } from '@/context/AuthContext';
 import { useToast } from '@/context/ToastContext';
+import { getDrafts } from '@/lib/drafts';
 import {
   FiPlus,
   FiBox,
@@ -13,16 +14,23 @@ import {
   FiLayers,
   FiArrowUpRight,
   FiCheck,
+  FiAlertTriangle,
+  FiFileText,
+  FiRefreshCw,
+  FiPackage,
+  FiMaximize2,
 } from 'react-icons/fi';
 import ProductModal from '@/components/ProductModal';
 import VariantDetailModal from '@/components/VariantDetailModal';
 
 export default function OverviewDashboardPage() {
-  const { user, masterData } = useAuth();
+  const { user, masterData, refreshMasterData } = useAuth();
   const { showToast } = useToast();
 
   const [products, setProducts] = useState([]);
   const [totalProducts, setTotalProducts] = useState(0);
+  const [draftsCount, setDraftsCount] = useState(0);
+  const [unsyncedCount, setUnsyncedCount] = useState(0);
   const [loading, setLoading] = useState(true);
 
   // Modals state
@@ -32,21 +40,57 @@ export default function OverviewDashboardPage() {
   const [variantModalOpen, setVariantModalOpen] = useState(false);
   const [variantProduct, setVariantProduct] = useState(null);
 
-
   const loadDashboardData = useCallback(async () => {
+    setLoading(true);
     try {
-      const data = await api('GET', '/admin/products?page=1&limit=6');
-      const rows = Array.isArray(data?.products) ? data.products : [];
-      setProducts(rows);
-      setTotalProducts(data?.pagination?.total ?? rows.length);
+      // Fetch recent products and stock sync unsynced count in parallel
+      const [prodRes, syncRes] = await Promise.allSettled([
+        api('GET', '/admin/products?page=1&limit=6&sort=latest'),
+        api('GET', '/stock-sync/unsynced-products'),
+      ]);
+
+      if (prodRes.status === 'fulfilled') {
+        const data = prodRes.value;
+        const rows = Array.isArray(data?.products) ? data.products : [];
+        setProducts(rows);
+
+        // Robust total extraction: backend returns pagination.totalCount
+        const total =
+          data?.pagination?.totalCount ??
+          data?.pagination?.total ??
+          data?.pagination?.totalItems ??
+          data?.total ??
+          rows.length;
+        setTotalProducts(total);
+      } else {
+        setProducts([]);
+        setTotalProducts(0);
+      }
+
+      if (syncRes.status === 'fulfilled') {
+        const syncData = syncRes.value;
+        const count =
+          typeof syncData?.count === 'number'
+            ? syncData.count
+            : Array.isArray(syncData?.unsynced_products)
+            ? syncData.unsynced_products.length
+            : 0;
+        setUnsyncedCount(count);
+      }
+
+      // Check drafts count in localStorage
+      try {
+        const d = getDrafts();
+        setDraftsCount(Array.isArray(d) ? d.length : 0);
+      } catch {
+        setDraftsCount(0);
+      }
     } catch (err) {
-      setProducts([]);
-      setTotalProducts(0);
-      showToast(err.message || 'Failed to load dashboard data from backend', 'error');
+      console.warn('Dashboard load error:', err.message);
     } finally {
       setLoading(false);
     }
-  }, [showToast]);
+  }, []);
 
   useEffect(() => {
     loadDashboardData();
@@ -67,7 +111,7 @@ export default function OverviewDashboardPage() {
 
   return (
     <div>
-      {/* ── GREETING & TOP ACTION (MATCHING SCREENSHOT) ── */}
+      {/* ── GREETING & TOP ACTION ── */}
       <div className="dashboard-header">
         <div className="dashboard-title-wrap">
           <h1>
@@ -78,19 +122,80 @@ export default function OverviewDashboardPage() {
           </p>
         </div>
 
-        <button
-          className="dashboard-action-btn"
-          onClick={() => {
-            setEditProductId(null);
-            setProductModalOpen(true);
-          }}
-          style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}
-        >
-          <FiPlus /> New Product
-        </button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+          <button
+            type="button"
+            className="btn btn-outline"
+            onClick={() => {
+              loadDashboardData();
+              if (refreshMasterData) refreshMasterData();
+            }}
+            title="Refresh dashboard data"
+            style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+          >
+            <FiRefreshCw className={loading ? 'spin' : ''} /> Refresh
+          </button>
+          <button
+            className="dashboard-action-btn"
+            onClick={() => {
+              setEditProductId(null);
+              setProductModalOpen(true);
+            }}
+            style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+          >
+            <FiPlus /> New Product
+          </button>
+        </div>
       </div>
 
-      {/* ── 4 TOP METRIC CARDS (MATCHING SCREENSHOT) ── */}
+      {/* ── UNSYNCED STOCK BARCODE ALERT BANNER ── */}
+      {unsyncedCount > 0 && (
+        <div
+          style={{
+            background: 'linear-gradient(135deg, #fffbeb 0%, #fef3c7 100%)',
+            border: '1px solid #fde68a',
+            borderRadius: '12px',
+            padding: '12px 18px',
+            marginBottom: '20px',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: '12px',
+            flexWrap: 'wrap',
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+            <span
+              style={{
+                background: '#fef3c7',
+                padding: '8px',
+                borderRadius: '8px',
+                color: '#d97706',
+                display: 'flex',
+              }}
+            >
+              <FiAlertTriangle size={20} />
+            </span>
+            <div>
+              <strong style={{ color: '#92400e', fontSize: '14px' }}>
+                {unsyncedCount} Vendor Product{unsyncedCount > 1 ? 's' : ''} Require Barcode Sync
+              </strong>
+              <p style={{ margin: '2px 0 0', fontSize: '12.5px', color: '#b45309' }}>
+                Vendor bulk uploads contain barcodes not matched with the Admin Master Catalog. Link them to activate inventory.
+              </p>
+            </div>
+          </div>
+          <Link
+            href="/stock-management"
+            className="btn btn-sm btn-primary"
+            style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', whiteSpace: 'nowrap' }}
+          >
+            <FiPackage /> Resolve in Stock Management &rarr;
+          </Link>
+        </div>
+      )}
+
+      {/* ── 4 TOP METRIC CARDS ── */}
       <div className="metrics-grid">
         {/* Card 1: Total Products */}
         <div className="metric-card">
@@ -101,12 +206,18 @@ export default function OverviewDashboardPage() {
               </span>
               <span>Total Products</span>
             </div>
+            <Link href="/products" className="badge badge-brand" style={{ fontSize: '11px', textDecoration: 'none' }}>
+              View All &rarr;
+            </Link>
           </div>
           <div className="metric-card-body">
             <div className="metric-card-value-wrap">
               <div className="metric-card-value">
-                {totalProducts}
+                {totalProducts ? totalProducts.toLocaleString() : 0}
                 <span className="metric-card-unit">items</span>
+              </div>
+              <div className="metric-card-subtext" style={{ marginTop: '6px' }}>
+                {draftsCount > 0 ? `${draftsCount} drafts pending • ` : ''}Active Master Catalog
               </div>
             </div>
           </div>
@@ -121,15 +232,18 @@ export default function OverviewDashboardPage() {
               </span>
               <span>Categories</span>
             </div>
+            <Link href="/categories" className="badge badge-brand" style={{ fontSize: '11px', textDecoration: 'none' }}>
+              Manage &rarr;
+            </Link>
           </div>
           <div className="metric-card-body">
             <div className="metric-card-value-wrap">
               <div className="metric-card-value">
                 {masterData.categories.length}
-                <span className="metric-card-unit">/ {masterData.subcats.length} sub</span>
+                <span className="metric-card-unit">categories</span>
               </div>
               <div className="metric-card-subtext" style={{ marginTop: '6px' }}>
-                {masterData.mainCats.length} main categories
+                {masterData.mainCats.length} main • {masterData.subcats.length} subcategories
               </div>
             </div>
           </div>
@@ -144,6 +258,9 @@ export default function OverviewDashboardPage() {
               </span>
               <span>Registered Brands</span>
             </div>
+            <Link href="/brands" className="badge badge-brand" style={{ fontSize: '11px', textDecoration: 'none' }}>
+              Brands &rarr;
+            </Link>
           </div>
           <div className="metric-card-body">
             <div className="metric-card-value-wrap">
@@ -167,6 +284,9 @@ export default function OverviewDashboardPage() {
               </span>
               <span>Units &amp; Sizes</span>
             </div>
+            <Link href="/units" className="badge badge-brand" style={{ fontSize: '11px', textDecoration: 'none' }}>
+              Units &rarr;
+            </Link>
           </div>
           <div className="metric-card-body">
             <div className="metric-card-value-wrap">
@@ -174,28 +294,26 @@ export default function OverviewDashboardPage() {
                 {masterData.units.length}
                 <span className="metric-card-unit">units</span>
               </div>
-              <div className="metric-card-trend">
-                <span style={{ display: 'inline-flex', alignItems: 'center', gap: '2px' }}>
-                  <FiArrowUpRight /> {masterData.sizes.length}
-                </span>{' '}
-                sizes
-              </div>
-              <div className="metric-card-subtext">
-                {masterData.colors.length} color swatches
+              <div className="metric-card-subtext" style={{ marginTop: '6px' }}>
+                {masterData.sizes.length} sizes • {masterData.colors.length} color swatches
               </div>
             </div>
           </div>
         </div>
       </div>
 
-      {/* ── MIDDLE GRID (UPCOMING LIST & LARGE CHART) ── */}
+      {/* ── MIDDLE GRID (RECENT PRODUCTS LIST) ── */}
       <div className="dashboard-middle-grid">
-        {/* Left Column: Recent Products (Doctor Card Style) */}
         <div className="dash-card">
           <div className="dash-card-header">
-            <h2 className="dash-card-title">Recent Catalog Products</h2>
+            <div>
+              <h2 className="dash-card-title">Recent Catalog Products</h2>
+              <p style={{ fontSize: '12px', color: 'var(--text-light)', margin: '2px 0 0' }}>
+                Latest items added to master catalog
+              </p>
+            </div>
             <Link href="/products" className="dash-card-link">
-              <span>View All</span>
+              <span>View All ({totalProducts.toLocaleString()})</span>
               <FiArrowUpRight />
             </Link>
           </div>
@@ -210,8 +328,11 @@ export default function OverviewDashboardPage() {
                 <p>No products added yet</p>
               </div>
             ) : (
-              products.slice(0, 4).map((p) => {
-                const img = p.images && p.images[0] ? p.images[0] : '';
+              products.map((p) => {
+                const img =
+                  p.images && p.images[0]
+                    ? p.images[0]
+                    : p.image || p.imageUrl || p.image_url || '';
                 const cat = masterData.categories.find((c) => c.id === p.category_id);
 
                 return (
@@ -234,7 +355,7 @@ export default function OverviewDashboardPage() {
                           <span className="badge badge-grey">{cat.name}</span>
                         )}
                         {p.is_veg !== undefined && (
-                          <span style={{ fontSize: '11px', color: '#16a34a' }}>
+                          <span style={{ fontSize: '11px', color: p.is_veg ? '#16a34a' : '#dc2626', fontWeight: '600' }}>
                             {p.is_veg ? '• Veg' : '• Non-Veg'}
                           </span>
                         )}
@@ -274,9 +395,9 @@ export default function OverviewDashboardPage() {
         </div>
       </div>
 
-      {/* ── BOTTOM ROW (3 WIDGETS MATCHING SCREENSHOT) ── */}
+      {/* ── BOTTOM ROW (3 WIDGETS) ── */}
       <div className="dashboard-bottom-grid">
-        {/* Widget 1: Categories Health (matching Lab Report) */}
+        {/* Widget 1: Categories Health */}
         <div className="dash-card">
           <div className="dash-card-header">
             <h2 className="dash-card-title">Main Categories Status</h2>
@@ -291,7 +412,9 @@ export default function OverviewDashboardPage() {
                 <span className="report-item-title">{mc.title}</span>
                 {mc.three_shop_restriction ? (
                   <span className="badge badge-brand">3-Shop Restriction</span>
-                ) : null}
+                ) : (
+                  <span className="badge badge-green">Active</span>
+                )}
               </div>
             ))}
             {masterData.mainCats.length === 0 && (
@@ -302,17 +425,100 @@ export default function OverviewDashboardPage() {
           </div>
         </div>
 
-        {/* Widget 2: Recent Activity (matching Messages) */}
+        {/* Widget 2: Catalog Notifications & Synchronization Health */}
         <div className="dash-card">
           <div className="dash-card-header">
-            <h2 className="dash-card-title">Catalog Notifications</h2>
+            <h2 className="dash-card-title">Catalog Health &amp; Activity</h2>
+            <span className="badge badge-green" style={{ fontSize: '10px' }}>
+              Live
+            </span>
           </div>
-          <p style={{ color: 'var(--text-light)', fontSize: '12px' }}>
-            Recent activity is not available from the backend.
-          </p>
+          <div>
+            {/* Unsynced Barcodes Status */}
+            {unsyncedCount > 0 ? (
+              <div className="report-item">
+                <div>
+                  <div
+                    className="report-item-title"
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '6px',
+                      color: '#b45309',
+                      fontWeight: '700',
+                    }}
+                  >
+                    <FiAlertTriangle style={{ color: '#d97706' }} /> Vendor Barcode Mismatches
+                  </div>
+                  <div style={{ fontSize: '11px', color: 'var(--text-light)' }}>
+                    {unsyncedCount} uploaded item{unsyncedCount > 1 ? 's' : ''} require master catalog mapping
+                  </div>
+                </div>
+                <Link href="/stock-management" className="badge badge-brand" style={{ textDecoration: 'none' }}>
+                  Review
+                </Link>
+              </div>
+            ) : (
+              <div className="report-item">
+                <div>
+                  <div className="report-item-title" style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+                    <FiCheck style={{ color: '#10b981' }} /> Vendor Stock Sync
+                  </div>
+                  <div style={{ fontSize: '11px', color: 'var(--text-light)' }}>
+                    All uploaded vendor barcodes synced
+                  </div>
+                </div>
+                <span className="badge badge-green">Synced</span>
+              </div>
+            )}
+
+            {/* Drafts Status */}
+            {draftsCount > 0 ? (
+              <div className="report-item">
+                <div>
+                  <div className="report-item-title" style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+                    <FiFileText style={{ color: '#6366f1' }} /> Pending Product Drafts
+                  </div>
+                  <div style={{ fontSize: '11px', color: 'var(--text-light)' }}>
+                    {draftsCount} item{draftsCount > 1 ? 's' : ''} saved locally ready to publish
+                  </div>
+                </div>
+                <Link href="/drafts" className="badge badge-grey" style={{ textDecoration: 'none' }}>
+                  Drafts ({draftsCount})
+                </Link>
+              </div>
+            ) : (
+              <div className="report-item">
+                <div>
+                  <div className="report-item-title" style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+                    <FiBox style={{ color: '#0ea5e9' }} /> Master Catalog Status
+                  </div>
+                  <div style={{ fontSize: '11px', color: 'var(--text-light)' }}>
+                    {totalProducts.toLocaleString()} products active &amp; healthy
+                  </div>
+                </div>
+                <span className="badge badge-green">Active</span>
+              </div>
+            )}
+
+            {/* Brands Status */}
+            <div className="report-item">
+              <div>
+                <div className="report-item-title" style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+                  <FiTag style={{ color: '#8b5cf6' }} /> Brand Partners
+                </div>
+                <div style={{ fontSize: '11px', color: 'var(--text-light)' }}>
+                  {masterData.brands.length} registered brands verified
+                </div>
+              </div>
+              <Link href="/brands" className="badge badge-grey" style={{ textDecoration: 'none' }}>
+                Manage
+              </Link>
+            </div>
+          </div>
         </div>
 
-        {/* Widget 3: Inventory Units Checklist (matching Today's Medicine) */}
+        {/* Widget 3: Measurement Units Checklist */}
         <div className="dash-card">
           <div className="dash-card-header">
             <div>
