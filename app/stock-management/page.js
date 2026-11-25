@@ -292,26 +292,84 @@ export default function StockManagementPage() {
       const firstSheet = workbook.SheetNames[0];
       const rawRows = XLSX.utils.sheet_to_json(workbook.Sheets[firstSheet], { defval: '' });
 
+      // Robust multi-alias value extractor (case-insensitive, whitespace/punctuation-tolerant)
+      const getVal = (row, ...aliases) => {
+        if (!row || typeof row !== 'object') return '';
+        // 1. Direct key match
+        for (const a of aliases) {
+          if (row[a] !== undefined && row[a] !== null && String(row[a]).trim() !== '') {
+            return String(row[a]).trim();
+          }
+        }
+        // 2. Normalized match (lowercase, alphanumeric only)
+        const rowEntries = Object.entries(row);
+        for (const a of aliases) {
+          const normA = a.toLowerCase().replace(/[^a-z0-9]/g, '');
+          for (const [k, v] of rowEntries) {
+            if (v !== undefined && v !== null && String(v).trim() !== '') {
+              const normK = k.toLowerCase().replace(/[^a-z0-9]/g, '');
+              if (normK === normA) return String(v).trim();
+            }
+          }
+        }
+        return '';
+      };
+
       const parsed = rawRows.map((r, idx) => {
-        const barcode = String(r['Barcode'] || r['barcode'] || r['SKU'] || r['sku'] || r['Item Code'] || '').trim();
-        const name = String(r['Item Name'] || r['item_name'] || r['Product Name'] || r['Name'] || `Item #${idx + 1}`).trim();
-        const stock = parseInt(r['Stock'] || r['stock'] || r['Quantity'] || r['qty'] || 0, 10);
-        const mrp = parseFloat(r['MRP'] || r['mrp'] || 0);
-        const price = parseFloat(r['Sale Price'] || r['sale_price'] || r['Price'] || r['price'] || 0);
-        const unit = String(r['Unit'] || r['unit'] || r['Size'] || '—').trim();
+        const barcode = getVal(
+          r,
+          'barcode', 'bar_code', 'sku', 'sku_id', 'item_code', 'itemcode', 'code', 'vendor_sku', 'vendorsku'
+        );
+
+        const name = getVal(
+          r,
+          'product_name', 'productname', 'item_name', 'itemname', 'name', 'product', 'item', 'title', 'description'
+        ) || `Item #${idx + 1}`;
+
+        const rawStock = getVal(
+          r,
+          'stock', 'stock_quantity', 'quantity', 'qty', 'units', 'count', 'available_stock'
+        );
+        const stockNum = parseInt(rawStock, 10);
+        const stock = !isNaN(stockNum) ? stockNum : 0;
+
+        const rawMrp = getVal(
+          r,
+          'mrp', 'maximum_retail_price', 'maxprice', 'max_price', 'original_price', 'regular_price', 'list_price', 'mrp_price'
+        );
+        const mrpNum = parseFloat(String(rawMrp).replace(/[^0-9.]/g, ''));
+
+        const rawPrice = getVal(
+          r,
+          'selling_price', 'sellingprice', 'sale_price', 'saleprice', 'sales_price', 'salesprice', 'offer_price', 'discount_price', 'price', 'rate', 'sp', 'our_price', 'deal_price'
+        );
+        const priceNum = parseFloat(String(rawPrice).replace(/[^0-9.]/g, ''));
+
+        const parsedMrp = !isNaN(mrpNum) ? mrpNum : 0;
+        const parsedPrice = !isNaN(priceNum) ? priceNum : 0;
+
+        // If selling price is specified, use it. If not, fall back to MRP.
+        // If MRP is specified, use it. If not, fall back to selling price.
+        const finalPrice = parsedPrice > 0 ? parsedPrice : (parsedMrp > 0 ? parsedMrp : 0);
+        const finalMrp = parsedMrp > 0 ? parsedMrp : (finalPrice > 0 ? finalPrice : 0);
+
+        const unit = getVal(
+          r,
+          'weight', 'weight_kg', 'unit', 'size', 'volume', 'pack', 'net_weight', 'pack_size'
+        ) || '—';
 
         // Check if barcode is in unsynced products
         const isUnsynced = unsyncedProducts.some(
-          (u) => String(u.shop_id) === String(historyItem.shop_id) && String(u.vendor_sku).trim() === barcode
+          (u) => String(u.shop_id) === String(historyItem.shop_id) && String(u.vendor_sku).trim().toLowerCase() === String(barcode).trim().toLowerCase()
         );
 
         return {
           rowNum: idx + 1,
           barcode: barcode || '—',
           name,
-          stock: isNaN(stock) ? 0 : stock,
-          mrp: isNaN(mrp) ? 0 : mrp,
-          price: isNaN(price) ? 0 : price,
+          stock,
+          mrp: finalMrp,
+          price: finalPrice,
           unit,
           status: isUnsynced ? 'unsynced' : 'synced',
         };
@@ -1654,8 +1712,8 @@ export default function StockManagementPage() {
                             <strong>{r.name}</strong>
                           </td>
                           <td style={{ fontWeight: '700' }}>{r.stock}</td>
-                          <td style={{ color: '#64748b' }}>₹{r.mrp || '—'}</td>
-                          <td style={{ fontWeight: '700', color: '#0f766e' }}>₹{r.price}</td>
+                          <td style={{ color: '#64748b' }}>₹{r.mrp || (r.price ? r.price : '—')}</td>
+                          <td style={{ fontWeight: '700', color: '#0f766e' }}>₹{r.price || (r.mrp ? r.mrp : 0)}</td>
                           <td style={{ color: '#64748b' }}>{r.unit}</td>
                           <td>
                             {r.status === 'synced' ? (

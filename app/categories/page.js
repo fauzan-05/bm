@@ -552,15 +552,27 @@ export default function CategoriesPage() {
           {/* Primary Action Buttons */}
           <div className="cat-toolbar-btns">
             {catStack.length === 0 && (
-              <button className="btn btn-primary btn-sm" onClick={openAddMainCat} style={{ display: 'inline-flex', alignItems: 'center', gap: '5px' }}>
+              <button
+                type="button"
+                className="btn btn-primary btn-sm"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  openAddMainCat();
+                }}
+                style={{ display: 'inline-flex', alignItems: 'center', gap: '5px' }}
+              >
                 <FiPlus size={14} /> Add Main Category
               </button>
             )}
 
             {currentLevel === 'maincat' && (
               <button
+                type="button"
                 className="btn btn-primary btn-sm"
-                onClick={() => openAddCategory(catStack[catStack.length - 1].id)}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  openAddCategory(catStack[catStack.length - 1].id);
+                }}
                 style={{ display: 'inline-flex', alignItems: 'center', gap: '5px' }}
               >
                 <FiPlus size={14} /> Add Category
@@ -569,8 +581,12 @@ export default function CategoriesPage() {
 
             {currentLevel === 'category' && (
               <button
+                type="button"
                 className="btn btn-primary btn-sm"
-                onClick={() => openAddSubcat(catStack[catStack.length - 1].id, null)}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  openAddSubcat(catStack[catStack.length - 1].id, null);
+                }}
                 style={{ display: 'inline-flex', alignItems: 'center', gap: '5px' }}
               >
                 <FiPlus size={14} /> Add Subcategory
@@ -840,8 +856,12 @@ export default function CategoriesPage() {
             )}
             {currentLevel === 'maincat' && (
               <button
+                type="button"
                 className="btn btn-primary"
-                onClick={() => openAddCategory(catStack[catStack.length - 1].id)}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  openAddCategory(catStack[catStack.length - 1].id);
+                }}
                 style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}
               >
                 <FiPlus size={15} /> Create First Category
@@ -849,8 +869,12 @@ export default function CategoriesPage() {
             )}
             {currentLevel === 'category' && (
               <button
+                type="button"
                 className="btn btn-primary"
-                onClick={() => openAddSubcat(catStack[catStack.length - 1].id, null)}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  openAddSubcat(catStack[catStack.length - 1].id, null);
+                }}
                 style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}
               >
                 <FiPlus size={15} /> Create First Subcategory

@@ -6,11 +6,18 @@ export default function ConfirmModal({ isOpen, title = 'Confirm Delete', message
   if (!isOpen) return null;
 
   return (
-    <div className="modal-overlay" onClick={onCancel}>
+    <div
+      className="modal-overlay"
+      onClick={(e) => {
+        if (e.target === e.currentTarget) {
+          onCancel();
+        }
+      }}
+    >
       <div className="modal modal-sm" onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
           <h3>{title}</h3>
-          <button onClick={onCancel} aria-label="Close">
+          <button type="button" onClick={onCancel} aria-label="Close">
             <FiX />
           </button>
         </div>
@@ -18,10 +25,11 @@ export default function ConfirmModal({ isOpen, title = 'Confirm Delete', message
           <p>{message || 'Are you sure you want to proceed?'}</p>
         </div>
         <div className="modal-footer">
-          <button className="btn btn-outline" onClick={onCancel}>
+          <button type="button" className="btn btn-outline" onClick={onCancel}>
             Cancel
           </button>
           <button
+            type="button"
             className={`btn ${isDanger ? 'btn-danger' : 'btn-primary'}`}
             onClick={onConfirm}
           >
