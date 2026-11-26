@@ -136,6 +136,7 @@ function AddProductPageContent() {
   ]);
   const [activeVarRowIdx, setActiveVarRowIdx] = useState(0);
   const [activeVarCol, setActiveVarCol] = useState('unitId');
+  const [deletedVariantIds, setDeletedVariantIds] = useState([]);
 
   // Media Manager Popover State
   const [mediaTarget, setMediaTarget] = useState(null); // { type: 'product'|'variant', rowIdx: number }
@@ -185,6 +186,9 @@ function AddProductPageContent() {
         if (Array.isArray(parsed.variantRows) && parsed.variantRows.length > 0) {
           setVariantRows(parsed.variantRows);
         }
+        if (Array.isArray(parsed.deletedVariantIds)) {
+          setDeletedVariantIds(parsed.deletedVariantIds);
+        }
         if (parsed.activeSheet) {
           setActiveSheet(parsed.activeSheet);
         }
@@ -208,6 +212,7 @@ function AddProductPageContent() {
         JSON.stringify({
           productRows,
           variantRows,
+          deletedVariantIds,
           activeSheet,
           variantViewMode,
         })
@@ -215,7 +220,7 @@ function AddProductPageContent() {
     } catch (e) {
       console.warn('Failed to auto-save add product session:', e);
     }
-  }, [productRows, variantRows, activeSheet, variantViewMode, isSessionHydrated, sessionKey]);
+  }, [productRows, variantRows, deletedVariantIds, activeSheet, variantViewMode, isSessionHydrated, sessionKey]);
 
   const clearProductSession = () => {
     try {
@@ -579,6 +584,10 @@ function AddProductPageContent() {
       confirmText: isSingle ? 'Yes, Clear' : 'Yes, Remove',
       isDanger: true,
       onConfirm: () => {
+        const targetVariant = variantRows[rIdx];
+        if (targetVariant && targetVariant.id && typeof targetVariant.id === 'number' && targetVariant.id < 1000000000000) {
+          setDeletedVariantIds((prev) => (prev.includes(targetVariant.id) ? prev : [...prev, targetVariant.id]));
+        }
         if (isSingle) {
           setVariantRows([createEmptyVariantRow(1)]);
           showToast('Variant row cleared', 'info');
@@ -742,6 +751,18 @@ function AddProductPageContent() {
         }
 
         if (createdTargetId) {
+          // Delete removed variants from backend
+          if (deletedVariantIds.length > 0) {
+            for (const delId of deletedVariantIds) {
+              try {
+                await api('DELETE', `/admin/products/${createdTargetId}/variants/${delId}`);
+              } catch (err) {
+                console.warn(`[Delete Variant] Error deleting variant ${delId}:`, err);
+              }
+            }
+            setDeletedVariantIds([]);
+          }
+
           // Add/update all variants to product
           for (const vr of validVariants) {
             const cFields = (vr.customFields || [])
@@ -2150,21 +2171,21 @@ function AddProductPageContent() {
                           setActiveProdCol('gstPercent');
                         }}
                       >
-                        <select
-                          className="excel-cell-select"
-                          value={row.gstPercent}
+                        <input
+                          type="number"
+                          min="0"
+                          max="100"
+                          step="0.01"
+                          className="excel-cell-input"
+                          value={row.gstPercent !== undefined && row.gstPercent !== null ? row.gstPercent : ''}
+                          placeholder="0"
                           onChange={(e) => updateProductCell(rIdx, 'gstPercent', e.target.value)}
                           onFocus={() => {
                             setActiveProdRowIdx(rIdx);
                             setActiveProdCol('gstPercent');
                           }}
-                        >
-                          <option value="0">0%</option>
-                          <option value="5">5%</option>
-                          <option value="12">12%</option>
-                          <option value="18">18%</option>
-                          <option value="28">28%</option>
-                        </select>
+                          style={{ textAlign: 'right', paddingRight: '8px' }}
+                        />
                       </td>
 
                       {/* Col H: Description */}
