@@ -98,7 +98,8 @@ function AddProductPageContent() {
 
   const [saving, setSaving] = useState(false);
   const [subcatCache, setSubcatCache] = useState({});
-  const [loadingEditProduct, setLoadingEditProduct] = useState(false);
+  const [loadingEditProduct, setLoadingEditProduct] = useState(Boolean(editId));
+  const [isEditProductLoaded, setIsEditProductLoaded] = useState(!editId);
 
   // Screen detection (mobile vs desktop)
   const [isMobile, setIsMobile] = useState(false);
@@ -180,20 +181,30 @@ function AddProductPageContent() {
       const saved = localStorage.getItem(sessionKey);
       if (saved) {
         const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed.productRows) && parsed.productRows.length > 0) {
-          setProductRows(parsed.productRows);
-        }
-        if (Array.isArray(parsed.variantRows) && parsed.variantRows.length > 0) {
-          setVariantRows(parsed.variantRows);
-        }
-        if (Array.isArray(parsed.deletedVariantIds)) {
-          setDeletedVariantIds(parsed.deletedVariantIds);
-        }
-        if (parsed.activeSheet) {
-          setActiveSheet(parsed.activeSheet);
-        }
-        if (parsed.variantViewMode) {
-          setVariantViewMode(parsed.variantViewMode);
+        // If editing an existing product, only restore from localStorage if user made real edits
+        const hasUserEdits = !editId ||
+          (parsed.variantRows || []).some(v => v.unitId || v.size || v.color || v.description || (v.images && v.images.length > 0)) ||
+          (parsed.productRows || []).some(pr => pr.name || pr.categoryId);
+
+        if (hasUserEdits) {
+          if (Array.isArray(parsed.productRows) && parsed.productRows.length > 0) {
+            setProductRows(parsed.productRows);
+          }
+          if (Array.isArray(parsed.variantRows) && parsed.variantRows.length > 0) {
+            setVariantRows(parsed.variantRows);
+          }
+          if (Array.isArray(parsed.deletedVariantIds)) {
+            setDeletedVariantIds(parsed.deletedVariantIds);
+          }
+          if (parsed.activeSheet) {
+            setActiveSheet(parsed.activeSheet);
+          }
+          if (parsed.variantViewMode) {
+            setVariantViewMode(parsed.variantViewMode);
+          }
+        } else {
+          // Empty initial placeholder was saved earlier; remove it so fresh backend data loads
+          localStorage.removeItem(sessionKey);
         }
       }
     } catch (e) {
@@ -201,11 +212,12 @@ function AddProductPageContent() {
     } finally {
       setIsSessionHydrated(true);
     }
-  }, [sessionKey]);
+  }, [sessionKey, editId]);
 
   // Automatically save sheet state to localStorage whenever rows or sheets update
   useEffect(() => {
     if (!isSessionHydrated) return;
+    if (editId && !isEditProductLoaded) return;
     try {
       localStorage.setItem(
         sessionKey,
@@ -220,7 +232,7 @@ function AddProductPageContent() {
     } catch (e) {
       console.warn('Failed to auto-save add product session:', e);
     }
-  }, [productRows, variantRows, deletedVariantIds, activeSheet, variantViewMode, isSessionHydrated, sessionKey]);
+  }, [productRows, variantRows, deletedVariantIds, activeSheet, variantViewMode, isSessionHydrated, sessionKey, editId, isEditProductLoaded]);
 
   const clearProductSession = () => {
     try {
@@ -354,9 +366,20 @@ function AddProductPageContent() {
 
     let isMounted = true;
     async function loadProductForEdit() {
-      // If we already restored a modified edit session from localStorage, keep it
+      // If we already restored a modified edit session from localStorage with real user edits, keep it
       const existingSession = localStorage.getItem(sessionKey);
-      if (existingSession) return;
+      if (existingSession) {
+        try {
+          const parsed = JSON.parse(existingSession);
+          const hasUserEdits =
+            (parsed.variantRows || []).some(v => v.unitId || v.size || v.color || v.description || (v.images && v.images.length > 0)) ||
+            (parsed.productRows || []).some(pr => pr.name || pr.categoryId);
+          if (hasUserEdits) {
+            setIsEditProductLoaded(true);
+            return;
+          }
+        } catch (_) {}
+      }
 
       setLoadingEditProduct(true);
       try {
@@ -384,18 +407,32 @@ function AddProductPageContent() {
           vList = p.variants || [];
         }
 
-        const formattedVariants = (vList || []).map((v, idx) => ({
-          id: v.id || Date.now() + idx,
-          images: v.images || [],
-          unitId: v.unit_id ? String(v.unit_id) : '',
-          size: v.size || '',
-          color: v.color || '',
-          description: v.description || '',
-          customFields: (v.custom_fields || []).map((cf) => ({
-            label: cf.label || cf.name || cf.key || '',
-            value: cf.value || '',
-          })),
-        }));
+        const formattedVariants = (vList || []).map((v, idx) => {
+          let cfArray = [];
+          if (Array.isArray(v.custom_fields)) {
+            cfArray = v.custom_fields;
+          } else if (typeof v.custom_fields === 'string' && v.custom_fields.trim()) {
+            try { cfArray = JSON.parse(v.custom_fields); } catch (_) { cfArray = []; }
+          }
+          let imgList = [];
+          if (Array.isArray(v.images)) {
+            imgList = v.images;
+          } else if (typeof v.images === 'string' && v.images.trim()) {
+            try { imgList = JSON.parse(v.images); } catch (_) { imgList = [v.images]; }
+          }
+          return {
+            id: v.id || Date.now() + idx,
+            images: imgList,
+            unitId: v.unit_id ? String(v.unit_id) : '',
+            size: v.size || '',
+            color: v.color || '',
+            description: v.description || '',
+            customFields: (cfArray || []).map((cf) => ({
+              label: cf.label || cf.name || cf.key || '',
+              value: cf.value || '',
+            })),
+          };
+        });
 
         const finalVariants =
           formattedVariants.length > 0
@@ -406,9 +443,16 @@ function AddProductPageContent() {
                 createEmptyVariantRow(3),
               ];
 
+        let pImages = [];
+        if (Array.isArray(p.images)) {
+          pImages = p.images;
+        } else if (typeof p.images === 'string' && p.images.trim()) {
+          try { pImages = JSON.parse(p.images); } catch (_) { pImages = [p.images]; }
+        }
+
         const editedRow = {
           id: p.id,
-          images: p.images || [],
+          images: pImages,
           name: p.name || '',
           brandId: p.brand_id ? String(p.brand_id) : '',
           categoryId: p.category_id ? String(p.category_id) : '',
@@ -426,6 +470,7 @@ function AddProductPageContent() {
         setVariantRows(finalVariants);
         setActiveProdRowIdx(0);
         setActiveVarRowIdx(0);
+        setIsEditProductLoaded(true);
 
         if (initialSheetParam === 'variants') {
           setActiveSheet('variants');
@@ -439,7 +484,10 @@ function AddProductPageContent() {
       } catch (err) {
         showToast('Error loading product: ' + err.message, 'error');
       } finally {
-        if (isMounted) setLoadingEditProduct(false);
+        if (isMounted) {
+          setLoadingEditProduct(false);
+          setIsEditProductLoaded(true);
+        }
       }
     }
 
